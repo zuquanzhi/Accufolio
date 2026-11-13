@@ -58,7 +58,8 @@ def serve():
                 stream.write(json.dumps({'path':request.url.path,'destination':request.headers.get('sec-fetch-dest','')}) + '\n')
         return response
 
-    uvicorn.run(api.app, host='0.0.0.0', port=PORT, ssl_keyfile=str(KEY), ssl_certfile=str(CERT), log_level='warning')
+    uvicorn.run(api.app, host='0.0.0.0', port=PORT, ssl_keyfile=str(KEY), ssl_certfile=str(CERT),
+                log_level='warning', timeout_graceful_shutdown=5)
 
 
 def adb(*args):
@@ -228,7 +229,15 @@ def run(apk):
             except Exception:pass
             raise
         finally:
-            server.terminate();server.wait(timeout=15)
+            # Close the disposable WebView's keep-alive connections before shutting down HTTPS.
+            subprocess.run(['adb', 'shell', 'am', 'force-stop', 'io.accufolio.app'],
+                           check=False, capture_output=True, timeout=10)
+            server.terminate()
+            try:
+                server.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait(timeout=5)
 
 
 if __name__ == '__main__':
