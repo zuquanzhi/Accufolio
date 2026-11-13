@@ -77,7 +77,7 @@ def daily(actor: str = Depends(authorize)):
 @router.get('/health')
 def health(actor: str = Depends(authorize)):
     with db() as con:
-        return {'release':'1.1.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC'}
+        return {'release':'1.2.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC'}
 
 @router.get('/export')
 def export(actor: str = Depends(authorize)):
@@ -94,12 +94,16 @@ def undo(audit_id: int, actor: str = Depends(authorize)):
         data = json.loads(audit['details'])
         if audit['action'] not in ('add_trade','update_trade','delete_trade') or 'after' not in data: raise HTTPException(422,'This audit cannot be undone')
         current = con.execute('SELECT * FROM trades WHERE id=?',(data['id'],)).fetchone()
+        if 'side' not in data['after']: data['after']['side'] = 'buy'
         if not current or dict(current) != data['after']: raise HTTPException(409,'Trade changed since this action; undo newer changes first')
         before=data['before']
         if before is None:
             con.execute('UPDATE trades SET deleted=1 WHERE id=?',(data['id'],))
         else:
-            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,deleted=? WHERE id=?',tuple(before[k] for k in ('symbol','trade_date','shares','price','note','deleted'))+(data['id'],))
+            before.setdefault('side', 'buy')
+            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,deleted=?,side=? WHERE id=?',tuple(before[k] for k in ('symbol','trade_date','shares','price','note','deleted','side'))+(data['id'],))
+        from apps.api.main import validate_trade_history
+        validate_trade_history(con)
         con.execute('INSERT INTO reversals VALUES(?)',(audit_id,))
         con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)',(actor,'undo',json.dumps({'audit_id':audit_id})))
     return {'ok':True}

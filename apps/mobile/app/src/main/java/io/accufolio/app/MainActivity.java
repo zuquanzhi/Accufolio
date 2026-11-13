@@ -18,7 +18,6 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
-import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebViewClient;
@@ -70,6 +69,8 @@ public class MainActivity extends Activity {
         root.removeAllViews();
         root.addView(label("Accufolio",32));
         root.addView(label("连接你的投资账本",22));
+        Button updateButton = new Button(this); updateButton.setText("检查应用更新"); root.addView(updateButton);
+        updateButton.setOnClickListener(v -> AppUpdater.check(this));
         root.addView(label("输入已部署的 Accufolio HTTPS 地址。应用会加载服务器最新功能，无需重复下载安装。",16));
         EditText input = new EditText(this);
         input.setSingleLine(true); input.setTextColor(Color.WHITE);
@@ -86,7 +87,6 @@ public class MainActivity extends Activity {
                 getPreferences(MODE_PRIVATE).edit().putString("server",server).apply();
                 WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
                 CookieManager.getInstance().removeAllCookies(null);
-                WebStorage.getInstance().deleteAllData();
                 openServer(server);
             } catch (IllegalArgumentException e) { error.setText(e.getMessage()); }
         });
@@ -102,6 +102,7 @@ public class MainActivity extends Activity {
         bar.addView(title,new LinearLayout.LayoutParams(0,dp(56),1));
         Button reload=new Button(this);reload.setText("刷新");bar.addView(reload);
         Button settings=new Button(this);settings.setText("服务器");bar.addView(settings);
+        Button update=new Button(this);update.setText("更新");bar.addView(update);
         root.addView(bar);
         status=label("正在连接…",13);root.addView(status);
         web = new WebView(this);
@@ -146,6 +147,7 @@ public class MainActivity extends Activity {
         });
         root.addView(web,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1));
         reload.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("刷新会清空尚未保存的输入。继续？").setNegativeButton("取消",null).setPositiveButton("刷新",(dialog,which)->web.reload()).show());
+        update.setOnClickListener(v->AppUpdater.check(this));
         settings.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("切换服务器会关闭当前页面。继续？").setNegativeButton("取消",null).setPositiveButton("继续",(dialog,which)->setup()).show());
         web.loadUrl(origin);
     }

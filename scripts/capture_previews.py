@@ -49,7 +49,6 @@ def main():
                 browser=p.chromium.launch(**options)
                 context=browser.new_context(http_credentials={'username':'admin','password':'preview-only'},viewport={'width':1440,'height':1040},device_scale_factor=1)
                 page=context.new_page();page.goto(base);expect(page.locator('#value')).to_have_text('$1,842.75')
-                page.locator('#trade [name=trade_date]').fill('2026-11-13');page.locator('#trade [name=trade_date]').blur()
                 page.evaluate("document.querySelector('header small').textContent='长期投资，从容积累 · 示例数据'")
                 page.screenshot(path=str(OUT/'web-overview.png'))
                 bars='\n'.join(f'2025-{i:02d}-03,{price}' for i,price in enumerate([100,104,97,90,95,103,109,106,115,120,118,130],1))

@@ -13,13 +13,11 @@
 
 ---
 
-Accufolio is a single-user, self-hosted app for long-term investors. Record purchases, review your holdings, compare contribution strategies, and follow market prices from a browser, a PWA, or the Android client. Your ledger is stored in your own SQLite database.
+Accufolio is a single-user, self-hosted app for long-term investors. Record buys and sells, review your holdings, compare contribution strategies, and follow market prices from a browser, a PWA, or the Android client. Your ledger is stored in your own SQLite database.
 
 ## Preview
 
-| Desktop web | Mobile web / PWA |
-|:---:|:---:|
-| <img src="assets/previews/web-overview.png" alt="Accufolio portfolio overview on desktop" width="800"> | <img src="assets/previews/mobile-overview.png" alt="Accufolio portfolio overview on mobile" width="235"> |
+![Accufolio desktop and mobile preview](assets/previews/product-poster.jpg)
 
 <details>
 <summary>More views: backtesting, monitoring, mobile trades, and Android welcome screen</summary>
@@ -30,12 +28,12 @@ Accufolio is a single-user, self-hosted app for long-term investors. Record purc
 <img src="assets/previews/android-welcome.png" alt="Android client server connection welcome screen" width="280">
 </details>
 
-These screenshots show the running application with synthetic transactions and prices in an isolated database. The mobile images show the responsive web interface; the Android client displays the same interface after connecting to a server; the welcome screen is captured on an Android 15 emulator.
+The device frames are illustrative; the screenshots show the running application with synthetic transactions and prices in an isolated database. The mobile images show the responsive web interface; the Android client displays the same interface after connecting to a server; the welcome screen is captured on an Android 15 emulator.
 
 ## Features
 
-- **Investment journal:** record and edit purchases, with an audit trail and undo for changes.
-- **Portfolio overview:** review contributions, shares, average cost, market value, profit and loss, and XIRR.
+- **Investment journal:** manage buys and sells via MCP, with an audit trail and undo for changes.
+- **Portfolio overview:** review holding cost, shares, average cost, market value, profit and loss, and XIRR.
 - **Strategy comparisons:** provide daily closing prices to compare four contribution strategies, including ending value, return, and the underlying price's maximum drawdown.
 - **Price monitoring:** follow US securities with Sina quotes, set change thresholds, and see in-app alerts and data-source status.
 - **Your data:** SQLite storage, daily and manual database backups, JSON trade export, and optional local MCP access that defaults to read-only.
@@ -70,7 +68,7 @@ The [deployment and usage guide](guides/使用与部署.md) contains environment
 | **Android APK** | Android 10 or later | Download the `.apk` from the [latest release](https://github.com/zuquanzhi/Accufolio/releases/latest), install it, and enter your server's HTTPS origin. |
 | **PWA** | Android or iOS browser | Open your HTTPS site and use the browser's install or add-to-home-screen action. |
 
-Both options require a deployed server; the APK does not include the backend. After the server is updated, web changes are detected and loaded automatically, with a prompt when there is unsaved input. Changes to the native Android client itself still require installing a new APK. The release source ZIP is for deployment and development, not an Android installer. SHA-256 checksum files are provided with release assets.
+Both options require a deployed server; the APK does not include the backend. After the server is updated, web changes are detected and loaded automatically, with a prompt when there is unsaved input. From v1.2.0, the Android app can check, download and verify updates in-app, then request system installation confirmation. Upgrading from an older version requires installing the new APK once. The release source ZIP is for deployment and development, not an Android installer. SHA-256 checksum files are provided with release assets.
 
 ## How it works
 
@@ -85,11 +83,11 @@ Browser / PWA / Android client
        Local MCP client (optional)
 ```
 
-The application uses HTTP Basic authentication. Use HTTPS for remote access and protect your password and database backups. MCP runs as a local process and is read-only by default; write access must be explicitly enabled.
+The application uses HTTP Basic authentication. Use HTTPS for remote access and protect your password and database backups. MCP runs as a local process and is read-only by default; write access must be explicitly enabled. The server ledger is read-only in the interface; the separate device-local ledger is stored in the current browser origin, is not synchronized or included in server backups, and requires the server to load the interface. Clearing browser data or uninstalling the app can delete it.
 
 ## Scope and limitations
 
-The current release focuses on a single-user, USD purchase ledger. It does not connect to a broker or place orders. Sales, dividends, fees, multiple currencies, broker sync, external notifications, and remote MCP are not supported. Quotes depend on a third party and may be delayed or unavailable. Backtests exclude costs, taxes, and dividends; historical results do not guarantee future returns.
+The current release focuses on a single-user, USD buy/sell ledger. It does not connect to a broker or place orders. Dividends, fees, multiple currencies, broker sync, external notifications, and remote MCP are not supported. Quotes depend on a third party and may be delayed or unavailable. Backtests exclude costs, taxes, and dividends; historical results do not guarantee future returns.
 
 ## Development
 

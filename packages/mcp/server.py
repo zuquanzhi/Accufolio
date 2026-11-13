@@ -12,7 +12,7 @@ def get_summary(symbol: str = 'QQQM') -> dict:
 
 @mcp.tool()
 def list_trades(symbol: str = '') -> list[dict]:
-    """List recorded purchase transactions, optionally filtered by symbol."""
+    """List recorded buy and sell transactions, optionally filtered by symbol."""
     rows = trades(actor='mcp')
     return [row for row in rows if not symbol or row['symbol'] == symbol.upper()]
 
@@ -29,28 +29,28 @@ def require_write():
         raise PermissionError('MCP write scope is disabled')
 
 @mcp.tool()
-def add_trade(symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True) -> dict:
-    """Preview or record a purchase. Requires write scope and a unique retry-safe key."""
+def add_trade(symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True, side: str = 'buy') -> dict:
+    """Preview or record a buy or sell. Requires write scope and a unique retry-safe key."""
     from apps.api.main import Trade, mutate_trade
     require_write()
     if not idempotency_key: raise ValueError('idempotency_key is required')
-    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note)
+    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note, side=side)
     if dry_run: return {'preview':trade.model_dump(mode='json')}
     return mutate_trade('add', trade, None, 'mcp', idempotency_key)
 
 @mcp.tool()
-def update_trade(trade_id: int, symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True) -> dict:
+def update_trade(trade_id: int, symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True, side: str = 'buy') -> dict:
     """Preview or replace a trade. Changes are audited and can be undone."""
     from apps.api.main import Trade, mutate_trade
     require_write()
     if not idempotency_key: raise ValueError('idempotency_key is required')
-    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note)
+    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note, side=side)
     if dry_run: return {'trade_id':trade_id,'preview':trade.model_dump(mode='json')}
     return mutate_trade('update',trade,trade_id,'mcp',idempotency_key)
 
 @mcp.tool()
 def delete_trade(trade_id: int, idempotency_key: str, dry_run: bool = True) -> dict:
-    """Soft-delete a purchase, preserving audit history."""
+    """Soft-delete a transaction, preserving audit history."""
     from apps.api.main import mutate_trade
     require_write()
     if not idempotency_key: raise ValueError('idempotency_key is required')

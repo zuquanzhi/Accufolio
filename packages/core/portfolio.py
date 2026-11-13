@@ -29,3 +29,32 @@ def summarize(lots: list[Lot], current_price: float) -> Portfolio:
     pnl = value - cost
     return Portfolio(shares, cost, cost / shares if shares else None, value, pnl,
                      pnl / cost if cost else None)
+
+
+def summarize_trades(trades, current_price):
+    """Moving-average cost basis, with rows in chronological order."""
+    if not isfinite(current_price) or current_price < 0:
+        raise ValueError("current price must be finite and non-negative")
+    shares = cost = realized = 0.0
+    for trade in trades:
+        quantity, price = float(trade['shares']), float(trade['price'])
+        Lot(quantity, price)
+        side = trade['side']
+        if side == 'buy':
+            shares += quantity
+            cost += quantity * price
+        elif side == 'sell':
+            if shares <= 0 or quantity > shares + 1e-9:
+                raise ValueError('Insufficient shares for sell transaction')
+            quantity = min(quantity, shares)
+            basis = cost * quantity / shares
+            realized += quantity * price - basis
+            shares -= quantity
+            cost -= basis
+            if shares < 1e-9:
+                shares = cost = 0.0
+        else:
+            raise ValueError('Invalid trade side')
+    value = shares * current_price
+    return Portfolio(shares, cost, cost / shares if shares else None, value, value - cost,
+                     (value - cost) / cost if cost else None), realized

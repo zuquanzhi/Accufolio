@@ -6,13 +6,13 @@ import sqlite3
 from contextlib import contextmanager, asynccontextmanager
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
-from packages.core.portfolio import Lot, summarize
+from packages.core.portfolio import summarize_trades
 from packages.core.metrics import xirr, twr, max_drawdown
 from packages.core.backtest import run as run_backtest
 from packages.providers import get_quote
@@ -45,7 +45,7 @@ async def lifespan(app):
     yield
     stop.set()
 
-app = FastAPI(title='Accufolio', version='1.1.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='1.2.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -82,6 +82,8 @@ def db():
         columns = {row[1] for row in conn.execute('PRAGMA table_info(trades)')}
         if 'deleted' not in columns:
             conn.execute('ALTER TABLE trades ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+        if 'side' not in columns:
+            conn.execute("ALTER TABLE trades ADD COLUMN side TEXT NOT NULL DEFAULT 'buy'")
         conn.executescript('''CREATE TABLE IF NOT EXISTS requests(key TEXT PRIMARY KEY, payload TEXT NOT NULL, result TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS watchlist(symbol TEXT PRIMARY KEY, threshold REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS scans(id INTEGER PRIMARY KEY, ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, symbol TEXT NOT NULL, price REAL, change_percent REAL, error TEXT);
@@ -101,13 +103,14 @@ class Trade(BaseModel):
     shares: float = Field(gt=0, allow_inf_nan=False)
     price: float = Field(gt=0, allow_inf_nan=False)
     note: str = Field(default='', max_length=500)
+    side: Literal['buy', 'sell'] = 'buy'
 
 @app.get('/api/version')
 def version(actor: str = Depends(authorize)):
     digest = hashlib.sha256()
     for path in (WEB / 'index.html', WEB / 'style.css', WEB / 'app.js', ROOT / 'assets' / 'icon-192.png', ROOT / 'assets' / 'icon-512.png'):
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '1.1.0'}
+    return {'version': digest.hexdigest(), 'release': '1.2.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
@@ -142,16 +145,30 @@ def mutate_trade(action, trade, trade_id, actor, key=None):
             before = dict(row)
         if action == 'add':
             # Never reuse an ID after deletion: old audits must keep identifying the same trade.
-            trade_id = con.execute('INSERT INTO trades(symbol,trade_date,shares,price,note) VALUES(?,?,?,?,?)', tuple(data[k] for k in ('symbol','trade_date','shares','price','note'))).lastrowid
+            trade_id = con.execute('INSERT INTO trades(symbol,trade_date,shares,price,note,side) VALUES(?,?,?,?,?,?)', tuple(data[k] for k in ('symbol','trade_date','shares','price','note','side'))).lastrowid
         elif action == 'update':
-            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=? WHERE id=?', tuple(data[k] for k in ('symbol','trade_date','shares','price','note')) + (trade_id,))
+            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,side=? WHERE id=?', tuple(data[k] for k in ('symbol','trade_date','shares','price','note','side')) + (trade_id,))
         else:
             con.execute('UPDATE trades SET deleted=1 WHERE id=?', (trade_id,))
+        validate_trade_history(con)
         after = dict(con.execute('SELECT * FROM trades WHERE id=?', (trade_id,)).fetchone())
         audit_id = con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)', (actor, action+'_trade', json.dumps({'id':trade_id, 'before':before, 'after':after}))).lastrowid
         result = {'id':trade_id, 'audit_id':audit_id, 'ok':True}
         if key: con.execute('INSERT INTO requests VALUES(?,?,?)', (key,payload,json.dumps(result)))
         return result
+
+
+def validate_trade_history(con):
+    """All active trades must be backed by prior holdings, including after edits and undo."""
+    rows = con.execute('SELECT * FROM trades WHERE deleted=0 ORDER BY symbol, trade_date, id').fetchall()
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row['symbol'], []).append(row)
+    try:
+        for history in grouped.values():
+            summarize_trades(history, 0)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 @app.get('/api/audit')
 def audit(actor: str = Depends(authorize)):
@@ -185,16 +202,15 @@ def delete_trade(trade_id: int, actor: str = Depends(authorize), idempotency_key
 def summary(symbol: str = 'QQQM', actor: str = Depends(authorize)):
     symbol = symbol.upper()
     with db() as con:
-        rows = con.execute('SELECT shares,price,trade_date FROM trades WHERE symbol=? AND deleted=0', (symbol,)).fetchall()
+        rows = con.execute('SELECT shares,price,trade_date,side FROM trades WHERE symbol=? AND deleted=0 ORDER BY trade_date,id', (symbol,)).fetchall()
     quote = get_quote(symbol)
-    lots = [Lot(row['shares'], row['price']) for row in rows]
-    cost = sum(l.shares*l.price for l in lots)
-    shares = sum(l.shares for l in lots)
-    position = None if quote.quote is None else summarize(lots, quote.quote.price).__dict__
+    portfolio, realized = summarize_trades(rows, quote.quote.price if quote.quote else 0)
+    cost, shares = portfolio.cost, portfolio.shares
+    position = None if quote.quote is None else portfolio.__dict__
     annualized = None
     xirr_reason = '行情不可用' if position is None else '样本不足或没有持仓'
     if position and rows:
-        flows = [(date.fromisoformat(row['trade_date']), -row['shares'] * row['price']) for row in rows]
+        flows = [(date.fromisoformat(row['trade_date']), (-1 if row['side'] == 'buy' else 1) * row['shares'] * row['price']) for row in rows]
         if any(day > date.today() for day, _ in flows):
             xirr_reason = '存在未来交易日期'
         else:
@@ -204,7 +220,7 @@ def summary(symbol: str = 'QQQM', actor: str = Depends(authorize)):
             except ValueError:
                 xirr_reason = '无法在支持的范围内计算'
     return {'symbol': symbol, 'shares': shares, 'cost': cost, 'average_price': cost/shares if shares else None,
-            'position': position, 'xirr': annualized, 'xirr_reason': xirr_reason, 'quote': quote.quote.__dict__ if quote.quote else None,
+            'position': position, 'realized_pnl': realized, 'xirr': annualized, 'xirr_reason': xirr_reason, 'quote': quote.quote.__dict__ if quote.quote else None,
             'degraded': quote.degraded, 'errors': quote.errors}
 
 from apps.api.extended import router
