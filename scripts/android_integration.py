@@ -173,11 +173,30 @@ def scroll_to(value):
     width, height = list(map(int, re.findall(r'\d+', adb('shell', 'wm', 'size'))))[-2:]
     for _ in range(8):
         ui = screen()
-        matches = [n for n in ui.iter('node') if text(n) == value]
-        for node in matches:
+        matches = []
+        for node in ui.iter('node'):
+            label = re.sub(r'\s+', ' ', text(node)).strip()
+            clickable = node.attrib.get('clickable') == 'true'
+            # WebView can expose a button's title and explanatory text as one
+            # accessible label. Only accept that prefix on an enabled action,
+            # not a surrounding section containing unrelated descendant text.
+            if node.attrib.get('enabled') == 'false':
+                continue
+            if label == value:
+                rank = 0 if clickable else 2
+            elif clickable and label.startswith(value + ' '):
+                rank = 1
+            else:
+                continue
             x1, y1, x2, y2 = bounds(node)
             if x2 > x1 and y2 > y1 and y1 > 30 and y2 < height-95:
-                return node
+                matches.append((rank, node))
+        if matches:
+            rank = min(item[0] for item in matches)
+            best = [node for candidate_rank, node in matches if candidate_rank == rank]
+            if len(best) != 1:
+                raise AssertionError(('Ambiguous visible action', value, [node.attrib for node in best]))
+            return best[0]
         adb('shell', 'input', 'swipe', str(width//2), str(int(height*.72)), str(width//2), str(int(height*.35)), '350')
         time.sleep(.3)
     raise AssertionError(('Unable to reach', value, items(screen())))
