@@ -11,8 +11,8 @@ for y in range(h):
 d=ImageDraw.Draw(img)
 font='C:/Windows/Fonts/segoeui.ttf'; bold='C:/Windows/Fonts/segoeuib.ttf'
 d.text((145,100),'ACCUFOLIO',font=ImageFont.truetype(bold,25),fill='#b1bbca',stroke_width=0)
-d.text((145,145),'Invest with perspective.',font=ImageFont.truetype(bold,64),fill='#f2f4f6')
-d.text((148,230),'Your portfolio, at home on every screen.',font=ImageFont.truetype(font,25),fill='#9da8b5')
+d.text((145,145),'Agent-driven asset allocation.',font=ImageFont.truetype(bold,64),fill='#f2f4f6')
+d.text((148,230),'Let your agent manage the data. See the whole picture.',font=ImageFont.truetype(font,25),fill='#9da8b5')
 shadow=Image.new('RGBA',(w,h));sd=ImageDraw.Draw(shadow);sd.rounded_rectangle((112,310,1450,1282),radius=28,fill=(0,0,0,185));sd.rounded_rectangle((1370,495,1710,1250),radius=55,fill=(0,0,0,230));img=Image.alpha_composite(img.convert('RGBA'),shadow.filter(ImageFilter.GaussianBlur(36)));d=ImageDraw.Draw(img)
 # Laptop-like browser frame around an unmodified application screenshot.
 x,y=120,305; sw=1300; sh=round(sw*1040/1440); d.rounded_rectangle((x,y,x+sw+20,y+sh+66),radius=20,fill='#30353d',outline='#636a74',width=2);d.rounded_rectangle((x+9,y+9,x+sw+11,y+sh+54),radius=12,fill='#0f1217');d.rectangle((x+10,y+40,x+sw+10,y+40+sh),fill='#101217');
