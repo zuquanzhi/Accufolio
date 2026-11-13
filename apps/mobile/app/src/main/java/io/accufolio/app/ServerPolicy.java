@@ -29,5 +29,8 @@ public final class ServerPolicy {
                     && effectivePort(a) == effectivePort(b);
         } catch (Exception e) { return false; }
     }
+    public static boolean canOpenSettings(String origin, String currentPage, String target, boolean mainFrame, boolean gesture) {
+        return mainFrame && gesture && "accufolio://settings".equals(target) && isTrusted(origin, currentPage);
+    }
     private static int effectivePort(URI uri) { return uri.getPort() == -1 ? 443 : uri.getPort(); }
 }

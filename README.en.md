@@ -25,6 +25,7 @@ Accufolio is a single-user, self-hosted app for long-term investors. Record buys
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/web-monitoring.png" alt="Price monitoring" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
+<img src="assets/previews/mobile-settings.png" alt="Mobile settings" width="280">
 <img src="assets/previews/android-welcome.png" alt="Android client server connection welcome screen" width="280">
 </details>
 
@@ -62,6 +63,9 @@ docker compose -f compose.yml -f compose.https.yml up -d --build
 The [deployment and usage guide](guides/使用与部署.md) contains environment variables, backup and restore, MCP configuration, and backtest details (currently in Chinese).
 
 ## Mobile access
+
+Four tabs organize the app: Portfolio, Activity, Discover, and Settings. Account selection, refresh, and Android connection/update controls live in Settings. The server-backed portfolio is read-only in the interface; the separate on-device journal supports manual entries.
+
 
 | Option | Requirements | Getting started |
 |---|---|---|

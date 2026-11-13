@@ -45,7 +45,7 @@ async def lifespan(app):
     yield
     stop.set()
 
-app = FastAPI(title='Accufolio', version='1.2.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='1.3.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -110,7 +110,7 @@ def version(actor: str = Depends(authorize)):
     digest = hashlib.sha256()
     for path in (WEB / 'index.html', WEB / 'style.css', WEB / 'app.js', ROOT / 'assets' / 'icon-192.png', ROOT / 'assets' / 'icon-512.png'):
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '1.2.0'}
+    return {'version': digest.hexdigest(), 'release': '1.3.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):

@@ -77,7 +77,7 @@ def daily(actor: str = Depends(authorize)):
 @router.get('/health')
 def health(actor: str = Depends(authorize)):
     with db() as con:
-        return {'release':'1.2.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC'}
+        return {'release':'1.3.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC'}
 
 @router.get('/export')
 def export(actor: str = Depends(authorize)):

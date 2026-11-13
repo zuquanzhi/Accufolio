@@ -13,4 +13,13 @@ public class ServerPolicyTest {
             try { ServerPolicy.normalize(value); fail(value); } catch (IllegalArgumentException expected) {}
         }
     }
+    @Test public void settingsRequiresTrustedPageAndGesture() {
+        assertTrue(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/#settings", "accufolio://settings", true, true));
+        assertFalse(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/", "accufolio://settings", false, true));
+        assertFalse(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/", "accufolio://settings", true, false));
+        for(String page : new String[]{null, "about:blank", "https://evil.example/", "https://example.com.evil/", "http://example.com/", "https://example.com:8443/"})
+            assertFalse(ServerPolicy.canOpenSettings("https://example.com/", page, "accufolio://settings", true, true));
+        for(String target : new String[]{"accufolio://settings/", "accufolio://settings?next=evil", "accufolio://settings#x", "accufolio://update", "accufolio://settings.evil", "https://example.com/settings"})
+            assertFalse(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/", target, true, true));
+    }
 }
