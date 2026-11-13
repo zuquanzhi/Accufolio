@@ -23,12 +23,10 @@ ui=screen()
 assert 'Accufolio' in texts(ui) and '连接' in texts(ui),texts(ui)
 pathlib.Path('work').mkdir(exist_ok=True)
 capture('android-welcome.png')
-# Welcome settings is reachable near the bottom; update is inside its sheet.
+# No second app navigation or generic settings button exists on the welcome screen.
 size=list(map(int,re.findall(r'\d+',adb('shell','wm','size'))))[-2:]
-settings=named(ui,'应用设置');assert bounds(settings)[1]>size[1]*.6
-tap(settings);ui=screen();assert '检查更新' in texts(ui) and '完成' in texts(ui)
-assert bounds(named(ui,'完成'))[1]>size[1]*.65
-tap(named(ui,'完成'));ui=screen()
+assert '应用设置' not in texts(ui),texts(ui)
+assert bounds(named(ui,'连接'))[1]>size[1]*.6
 entry=next(n for n in ui.iter('node') if n.attrib.get('class')=='android.widget.EditText')
 tap(entry);adb('shell','input','text','http://example.com');adb('shell','input','keyevent','4')
 ui=screen();tap(named(ui,'连接'));time.sleep(.5)
@@ -44,13 +42,12 @@ for _ in range(20):
     if any('暂时无法连接' in t for t in texts(ui)):break
 assert any('暂时无法连接' in t for t in texts(ui)),texts(ui)
 assert not any(t in ['刷新','服务器','更新'] for t in texts(ui)),texts(ui)
-recovery=named(ui,'连接设置');assert bounds(recovery)[1]>size[1]*.65
-tap(recovery);ui=screen()
-for text in ['连接地址','重新载入','检查更新','完成']:assert text in texts(ui),texts(ui)
-assert bounds(named(ui,'完成'))[1]>size[1]*.65
-capture('android-settings.png')
-# Inspecting settings does not navigate away; reload has an explicit confirmation.
-tap(named(ui,'重新载入'));ui=screen();assert '未保存的输入会被清空，已保存的记录不受影响。' in texts(ui)
-tap(named(ui,'取消'));ui=screen();assert '连接设置' in texts(ui)
+assert '应用设置' not in texts(ui),texts(ui)
+for text in ['重试','修改连接']:assert text in texts(ui),texts(ui)
+recovery=named(ui,'修改连接');assert bounds(recovery)[1]>size[1]*.65
+capture('android-recovery.png')
+tap(recovery);ui=screen();assert '连接地址' in texts(ui),texts(ui)
+assert any(n.attrib.get('class')=='android.widget.EditText' for n in ui.iter('node'))
+tap(named(ui,'取消'));ui=screen();assert '修改连接' in texts(ui)
 assert adb('shell','pidof','io.accufolio.app').strip()
-print('APK onboarding, HTTPS validation, connection recovery and bottom settings checks passed.')
+print('APK onboarding, HTTPS validation, no duplicate settings bar, and direct recovery checks passed.')

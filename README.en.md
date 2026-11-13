@@ -64,7 +64,7 @@ The [deployment and usage guide](guides/使用与部署.md) contains environment
 
 ## Mobile access
 
-Four tabs organize the app: Portfolio, Activity, Discover, and Settings. Account selection, refresh, and Android connection/update controls live in Settings. The server-backed portfolio is read-only in the interface; the separate on-device journal supports manual entries.
+Four independent document routes organize the app: `/assets`, `/records`, `/discover`, and `/settings`. Each can be opened directly, refreshed, and navigated back to. Account selection, refresh, and Android connection/update controls live in Settings. The server-backed portfolio is read-only in the interface; the separate on-device journal supports manual entries.
 
 
 | Option | Requirements | Getting started |

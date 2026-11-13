@@ -1,0 +1,9 @@
+<section id="view-assets" class="app-view" aria-labelledby="assets-title">
+    <div class="page-heading"><div><p class="eyebrow">YOUR PORTFOLIO</p><h1 id="assets-title" tabindex="-1">资产</h1></div><span class="account-pill" id="active-account">投资账户</span></div>
+    <div class="asset-layout">
+      <section class="wealth-card" aria-label="持仓总览"><div class="wealth-top"><span>持仓市值 <span class="currency">USD</span></span><form id="symbol-form" class="symbol-picker"><label class="sr-only" for="symbol">查看标的</label><input id="symbol" value="QQQM" maxlength="15" pattern="[A-Za-z0-9.\-]+" required aria-label="查看标的"><button type="submit" aria-label="查看此标的"><svg class="icon"><use href="#icon-arrow"/></svg></button></form></div><strong id="value" class="wealth-value">—</strong><p class="valuation-note">把每一次积累，看得更清晰。</p><div class="wealth-metrics"><div><span>浮动盈亏</span><strong id="pnl">—</strong><small id="pct">—</small></div><div><span>持仓成本</span><strong id="cost">—</strong><small id="xirr">—</small></div></div></section>
+      <section class="panel position-panel"><div class="section-head"><h2>持仓详情</h2><span class="subtle">当前标的</span></div><div class="position-row"><div class="ticker-icon" id="ticker-letter">Q</div><div class="position-name"><strong id="position-symbol">QQQM</strong><small id="avg">暂无持仓</small></div><div class="position-shares"><strong id="shares">—</strong><small>股</small></div></div><p id="quote" class="quote-note">等待行情</p></section>
+    </div>
+    <section class="panel recent-panel"><div class="section-head"><h2>最近记录</h2><a class="text-button" id="view-all-trades" href="/records">查看全部 <svg class="icon"><use href="#icon-arrow"/></svg></a></div><div id="recent-trades"><p class="empty">正在读取记录…</p></div></section>
+    <p class="page-footnote" id="overview-note">由 AI 协助整理，让你专注长期。</p>
+  </section>

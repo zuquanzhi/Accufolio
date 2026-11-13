@@ -3,7 +3,6 @@ package io.accufolio.app;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Dialog;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -18,8 +17,6 @@ import android.text.InputType;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
-import android.view.Window;
-import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.HttpAuthHandler;
@@ -47,21 +44,20 @@ import java.util.List;
 
 public class MainActivity extends Activity {
     private int INK = Color.rgb(28,34,48), MUTED = Color.rgb(103,113,131);
-    private int BACKGROUND = Color.rgb(245,247,251), BLUE = Color.rgb(40,100,229), SURFACE=Color.WHITE, SHEET=Color.rgb(252,253,255);
+    private int BACKGROUND = Color.rgb(245,247,251), BLUE = Color.rgb(40,100,229), SURFACE=Color.WHITE;
     private LinearLayout root, recovery;
     private WebView web;
     private TextView status;
-    private Button recoverySettings;
+    private Button recoveryAddress, recoveryRetry;
     private String origin, authorization, mainDocument;
     private boolean pageFailed;
     private final List<HttpAuthHandler> pendingAuth = new ArrayList<>();
     private AlertDialog loginDialog;
-    private Dialog settingsDialog;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         boolean dark=(getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
-        if(dark){BACKGROUND=Color.rgb(17,20,26);INK=Color.rgb(243,245,249);MUTED=Color.rgb(168,179,196);SURFACE=Color.rgb(29,34,43);SHEET=Color.rgb(32,37,48);}
+        if(dark){BACKGROUND=Color.rgb(17,20,26);INK=Color.rgb(243,245,249);MUTED=Color.rgb(168,179,196);SURFACE=Color.rgb(29,34,43);}
         WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
         root = column(0);
         root.setBackgroundColor(BACKGROUND);
@@ -125,7 +121,8 @@ public class MainActivity extends Activity {
                 saveServer(server);openServer(server);
             } catch(IllegalArgumentException e){error.setText(e.getMessage());error.setVisibility(View.VISIBLE);}
         });
-        Button settings=button("应用设置",false);settings.setOnClickListener(v->showSettings());footer.addView(settings);root.addView(footer);
+        Button update=button("版本 1.4.0 · 检查更新",false);update.setTextSize(13);update.setTextColor(MUTED);
+        update.setBackgroundColor(Color.TRANSPARENT);update.setOnClickListener(v->AppUpdater.check(this));footer.addView(update);root.addView(footer);
     }
     private void saveServer(String server){
         getPreferences(MODE_PRIVATE).edit().putString("server",server).apply();
@@ -133,29 +130,20 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().removeAllCookies(null);
         // Device-local journals remain in WebStorage and are isolated by HTTPS origin.
     }
-    private void showSettings(){
-        if(settingsDialog!=null && settingsDialog.isShowing())return;
-        Dialog dialog=new Dialog(this);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);settingsDialog=dialog;
-        LinearLayout content=column(24);content.setBackground(surface(SHEET,28));
-        TextView title=label("应用设置",23,INK);title.setTypeface(null,Typeface.BOLD);content.addView(title);
-        String version="1.3.0";try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){}
-        content.addView(label("Accufolio "+version,13,MUTED));gap(content,18);
-        if(web!=null){
-            Button address=button("连接地址",false);content.addView(address);
-            TextView host=label(URI.create(origin).getHost(),13,MUTED);host.setSingleLine(true);content.addView(host);gap(content,8);
-            address.setOnClickListener(v->{dialog.dismiss();editAddress();});
-            Button reload=button("重新载入",false);content.addView(reload);gap(content,8);
-            reload.setOnClickListener(v->{dialog.dismiss();new AlertDialog.Builder(this).setTitle("重新载入页面？").setMessage("未保存的输入会被清空，已保存的记录不受影响。")
-                .setNegativeButton("取消",null).setPositiveButton("重新载入",(d,w)->{if(web!=null)web.reload();}).show();});
-        }
-        Button update=button("检查更新",false);content.addView(update);gap(content,18);update.setOnClickListener(v->{dialog.dismiss();AppUpdater.check(this);});
-        Button close=button("完成",true);content.addView(close);close.setOnClickListener(v->dialog.dismiss());
-        ScrollView sheetScroll=new ScrollView(this);sheetScroll.setBackground(surface(SHEET,28));sheetScroll.setClipToOutline(true);sheetScroll.addView(content);dialog.setContentView(sheetScroll);dialog.setCanceledOnTouchOutside(true);
-        Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawableResource(android.R.color.transparent);window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams attributes=window.getAttributes();attributes.gravity=Gravity.BOTTOM;attributes.dimAmount=.25f;attributes.y=dp(12);window.setAttributes(attributes);}
-        dialog.show();if(window!=null){
-            int width=getResources().getDisplayMetrics().widthPixels-dp(24);
-            content.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-            window.setLayout(width,Math.min(content.getMeasuredHeight(),Math.max(dp(160),root.getHeight()-dp(40))));
+    private void requestReload(){
+        new AlertDialog.Builder(this).setTitle("重新载入页面？").setMessage("未保存的输入可能被清空，已保存的记录不受影响。")
+            .setNegativeButton("取消",null).setPositiveButton("重新载入",(dialog,which)->{if(web!=null)web.reload();}).show();
+    }
+    private void performNativeAction(String action){
+        switch(action){
+            case "connection": editAddress();break;
+            case "update": AppUpdater.check(this);break;
+            case "reload": requestReload();break;
+            case "settings":
+                // Compatibility for old self-hosted pages; never add a second app navigation bar.
+                new AlertDialog.Builder(this).setTitle("连接与更新").setItems(new String[]{"连接地址","检查更新","重新载入"},
+                    (dialog,which)->performNativeAction(new String[]{"connection","update","reload"}[which])).setNegativeButton("取消",null).show();break;
+            default: break;
         }
     }
     private void editAddress(){
@@ -173,7 +161,7 @@ public class MainActivity extends Activity {
         pageFailed=true;
         // Preserve the WebView, history and device storage, but never expose Chromium's error page.
         if(hideDocument && web!=null)web.setVisibility(View.INVISIBLE);
-        status.setVisibility(View.VISIBLE);status.setText(message);recoverySettings.setText("连接设置");recoverySettings.setVisibility(View.VISIBLE);recovery.setVisibility(View.VISIBLE);
+        status.setText(message);recovery.setVisibility(View.VISIBLE);
     }
 
     @SuppressLint("SetJavaScriptEnabled") // Only the explicitly configured HTTPS origin is permitted; no JS bridge.
@@ -184,17 +172,26 @@ public class MainActivity extends Activity {
         root.removeAllViews();
         web=new WebView(this);web.setBackgroundColor(BACKGROUND);
         WebSettings options=web.getSettings();options.setJavaScriptEnabled(true);options.setDomStorageEnabled(true);
-        options.setUserAgentString(options.getUserAgentString()+" AccufolioAndroid/1.3.0");
+        options.setUserAgentString(options.getUserAgentString()+" AccufolioAndroid/1.4.0");
         options.setAllowFileAccess(false);options.setAllowContentAccess(false);options.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         options.setCacheMode(WebSettings.LOAD_NO_CACHE);options.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);web.setWebChromeClient(new WebChromeClient());
         recovery=column(18);recovery.setBackground(surface(SURFACE,20));status=label("正在连接…",14,MUTED);recovery.addView(status);
-        recoverySettings=button("连接设置",false);recoverySettings.setOnClickListener(v->showSettings());recovery.addView(recoverySettings);
+        LinearLayout recoveryActions=new LinearLayout(this);recoveryActions.setOrientation(LinearLayout.HORIZONTAL);
+        recoveryRetry=button("重试",true);recoveryRetry.setOnClickListener(v->{if(web!=null)web.reload();});
+        recoveryAddress=button("修改连接",false);recoveryAddress.setOnClickListener(v->editAddress());
+        recoveryActions.addView(recoveryRetry,new LinearLayout.LayoutParams(0,dp(52),1));
+        LinearLayout.LayoutParams addressLayout=new LinearLayout.LayoutParams(0,dp(52),1);addressLayout.setMarginStart(dp(12));
+        recoveryActions.addView(recoveryAddress,addressLayout);recovery.addView(recoveryActions);recovery.setVisibility(View.GONE);
         web.setWebViewClient(new WebViewClient(){
-            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap icon){if(!ServerPolicy.isTrusted(origin,url))return;mainDocument=url;view.setVisibility(View.VISIBLE);pageFailed=false;status.setVisibility(View.VISIBLE);status.setText("正在连接…");recoverySettings.setText("连接设置");recoverySettings.setVisibility(View.VISIBLE);recovery.setVisibility(View.VISIBLE);}
+            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap icon){
+                if(!ServerPolicy.isTrusted(origin,url))return;
+                mainDocument=url;view.setVisibility(View.VISIBLE);pageFailed=false;recovery.setVisibility(View.GONE);
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){
                 String target=request.getUrl().toString();
-                if(ServerPolicy.canOpenSettings(origin,view.getUrl(),target,request.isForMainFrame(),request.hasGesture())){showSettings();return true;}
+                String action=ServerPolicy.nativeAction(origin,view.getUrl(),target,request.isForMainFrame(),request.hasGesture());
+                if(action!=null){performNativeAction(action);return true;}
                 return !ServerPolicy.isTrusted(origin,target);
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
@@ -202,14 +199,7 @@ public class MainActivity extends Activity {
                 return new WebResourceResponse("text/plain","UTF-8",403,"Forbidden",null,new ByteArrayInputStream(new byte[0]));
             }
             @Override public void onPageFinished(WebView view,String url){
-                if(!pageFailed && ServerPolicy.isTrusted(origin,url)){
-                    // Older self-hosted pages may lack the new settings link. Keep recovery reachable.
-                    view.evaluateJavascript("!!document.querySelector('a[href=\"accufolio://settings\"]')",result->{
-                        if(pageFailed || web!=view)return;
-                        if("true".equals(result))recovery.setVisibility(View.GONE);
-                        else{status.setVisibility(View.GONE);recoverySettings.setText("应用设置");recovery.setVisibility(View.VISIBLE);}
-                    });
-                }
+                if(!pageFailed && ServerPolicy.isTrusted(origin,url))recovery.setVisibility(View.GONE);
             }
             @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame())connectionFailed("暂时无法连接。你可以检查网络，或更换连接地址。");}
             @Override public void onReceivedHttpError(WebView view,WebResourceRequest request,WebResourceResponse response){if(request.isForMainFrame())connectionFailed("站点暂时不可用（"+response.getStatusCode()+"）。请稍后重试或检查连接。");}
@@ -241,15 +231,11 @@ public class MainActivity extends Activity {
         loginDialog=new AlertDialog.Builder(this).setTitle("登录 "+URI.create(origin).getHost()).setView(form)
             .setPositiveButton("登录",(dialog,which)->{String username=user.getText().toString(),password=pass.getText().toString();authorization="Basic "+Base64.encodeToString((username+":"+password).getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
                 for(HttpAuthHandler item:pendingAuth)item.proceed(username,password);pendingAuth.clear();})
-            .setNegativeButton("取消",(dialog,which)->{cancelAuth();connectionFailed("尚未登录。你可以重新载入，或更换连接地址。");})
-            .setOnCancelListener(dialog->{cancelAuth();connectionFailed("尚未登录。你可以重新载入，或更换连接地址。");}).create();loginDialog.show();
+            .setNegativeButton("取消",(dialog,which)->{cancelAuth();connectionFailed("尚未登录。你可以重试，或修改连接地址。");})
+            .setOnCancelListener(dialog->{cancelAuth();connectionFailed("尚未登录。你可以重试，或修改连接地址。");}).create();loginDialog.show();
     }
     private void cancelAuth(){for(HttpAuthHandler item:pendingAuth)item.cancel();pendingAuth.clear();}
     @Override protected void onResume(){super.onResume();if(web!=null){web.onResume();web.evaluateJavascript("if(typeof checkVersion==='function'){checkVersion();}",null);}}
-    @Override public void onConfigurationChanged(Configuration config){
-        super.onConfigurationChanged(config);
-        if(settingsDialog!=null && settingsDialog.isShowing()){settingsDialog.dismiss();root.post(this::showSettings);}
-    }
     @Override protected void onPause(){if(web!=null)web.onPause();super.onPause();}
     @Override public void onBackPressed(){
         if(web!=null && ServerPolicy.isTrusted(origin,web.getUrl())){
@@ -257,5 +243,5 @@ public class MainActivity extends Activity {
         }else navigateBack();
     }
     private void navigateBack(){if(web!=null && web.canGoBack())web.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){cancelAuth();if(loginDialog!=null)loginDialog.dismiss();if(settingsDialog!=null)settingsDialog.dismiss();if(web!=null)web.destroy();authorization=null;WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();super.onDestroy();}
+    @Override protected void onDestroy(){cancelAuth();if(loginDialog!=null)loginDialog.dismiss();if(web!=null)web.destroy();authorization=null;WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();super.onDestroy();}
 }

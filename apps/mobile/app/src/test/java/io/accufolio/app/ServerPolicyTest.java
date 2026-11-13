@@ -13,13 +13,18 @@ public class ServerPolicyTest {
             try { ServerPolicy.normalize(value); fail(value); } catch (IllegalArgumentException expected) {}
         }
     }
-    @Test public void settingsRequiresTrustedPageAndGesture() {
-        assertTrue(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/#settings", "accufolio://settings", true, true));
-        assertFalse(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/", "accufolio://settings", false, true));
-        assertFalse(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/", "accufolio://settings", true, false));
-        for(String page : new String[]{null, "about:blank", "https://evil.example/", "https://example.com.evil/", "http://example.com/", "https://example.com:8443/"})
-            assertFalse(ServerPolicy.canOpenSettings("https://example.com/", page, "accufolio://settings", true, true));
-        for(String target : new String[]{"accufolio://settings/", "accufolio://settings?next=evil", "accufolio://settings#x", "accufolio://update", "accufolio://settings.evil", "https://example.com/settings"})
-            assertFalse(ServerPolicy.canOpenSettings("https://example.com/", "https://example.com/", target, true, true));
+    @Test public void actionsRequireTrustedPageAndGesture() {
+        for (String action : new String[]{"connection", "update", "reload", "settings"}) {
+            String target="accufolio://"+action;
+            assertEquals(action,ServerPolicy.nativeAction("https://example.com/", "https://example.com/settings",target,true,true));
+            assertNull(ServerPolicy.nativeAction("https://example.com/", "https://example.com/",target,false,true));
+            assertNull(ServerPolicy.nativeAction("https://example.com/", "https://example.com/",target,true,false));
+            for(String page : new String[]{null, "about:blank", "https://evil.example/", "https://example.com.evil/", "http://example.com/", "https://example.com:8443/"})
+                assertNull(ServerPolicy.nativeAction("https://example.com/",page,target,true,true));
+            for(String suffix:new String[]{"/", "?next=evil", "#x", ".evil"})
+                assertNull(ServerPolicy.nativeAction("https://example.com/", "https://example.com/",target+suffix,true,true));
+        }
+        for(String target:new String[]{null,"accufolio://unknown","accufolio://CONNECTION","https://example.com/settings","javascript:alert(1)"})
+            assertNull(ServerPolicy.nativeAction("https://example.com/", "https://example.com/",target,true,true));
     }
 }

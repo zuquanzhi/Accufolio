@@ -63,6 +63,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/sw.js').status_code, 200)
         self.assertEqual(self.client.get('/api/version', auth=self.auth).status_code, 200)
 
+    def test_independent_authenticated_pages(self):
+        root = self.client.get('/', auth=self.auth, follow_redirects=False)
+        self.assertEqual(root.status_code, 307)
+        self.assertEqual(root.headers['location'], '/assets')
+        for name in ['assets', 'records', 'discover', 'settings']:
+            self.assertEqual(self.client.get('/'+name).status_code, 401)
+            response = self.client.get('/'+name, auth=self.auth)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('no-store', response.headers['cache-control'])
+            self.assertEqual(response.text.count('class="app-view"'), 1)
+            for other in ['assets', 'records', 'discover', 'settings']:
+                self.assertEqual(('id="view-'+other+'"') in response.text, other == name)
+            self.assertIn('src="/pages/'+name+'.js"', response.text)
+            self.assertEqual(self.client.get('/pages/'+name+'.js').status_code, 200)
+        for path in ['/pages/assets.html', '/pages/unknown.js', '/pages/../main.py']:
+            self.assertEqual(self.client.get(path).status_code, 404)
+
     def test_idempotency_undo_and_backup(self):
         headers={'X-Accufolio':'1','Idempotency-Key':'once'}
         trade={'symbol':'QQQM','trade_date':'2025-01-01','shares':1,'price':100}

@@ -8,8 +8,8 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 from packages.core.portfolio import summarize_trades
@@ -45,7 +45,7 @@ async def lifespan(app):
     yield
     stop.set()
 
-app = FastAPI(title='Accufolio', version='1.3.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='1.4.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -108,9 +108,12 @@ class Trade(BaseModel):
 @app.get('/api/version')
 def version(actor: str = Depends(authorize)):
     digest = hashlib.sha256()
-    for path in (WEB / 'index.html', WEB / 'style.css', WEB / 'app.js', ROOT / 'assets' / 'icon-192.png', ROOT / 'assets' / 'icon-512.png'):
+    paths = sorted(path for path in WEB.rglob('*') if path.is_file() and path.suffix in {'.html', '.js', '.css', '.webmanifest'})
+    paths += [ROOT / 'assets' / 'icon-192.png', ROOT / 'assets' / 'icon-512.png']
+    for path in paths:
+        digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '1.3.0'}
+    return {'version': digest.hexdigest(), 'release': '1.4.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
@@ -226,9 +229,30 @@ def summary(symbol: str = 'QQQM', actor: str = Depends(authorize)):
 from apps.api.extended import router
 app.include_router(router)
 
+PAGES = {'assets': '资产', 'records': '记录', 'discover': '发现', 'settings': '设置'}
+
 @app.get('/')
 def index(actor: str = Depends(authorize)):
-    return FileResponse(WEB / 'index.html', headers={'Cache-Control': 'no-store'})
+    return RedirectResponse('/assets', status_code=307)
+
+@app.get('/assets')
+@app.get('/records')
+@app.get('/discover')
+@app.get('/settings')
+def page(request: Request, actor: str = Depends(authorize)):
+    name = request.url.path.lstrip('/')
+    shell = (WEB / 'index.html').read_text(encoding='utf-8-sig')
+    body = (WEB / 'pages' / (name + '.html')).read_text(encoding='utf-8-sig')
+    html = shell.replace('<!--PAGE-->', body).replace('{{page}}', name).replace('{{title}}', PAGES[name])
+    for key in PAGES:
+        html = html.replace('{{current-' + key + '}}', 'aria-current="page"' if key == name else '')
+    return HTMLResponse(html, headers={'Cache-Control': 'no-store'})
+
+@app.get('/pages/{filename}')
+def page_script(filename: str):
+    if filename not in {name + '.js' for name in PAGES}:
+        raise HTTPException(404)
+    return FileResponse(WEB / 'pages' / filename, media_type='application/javascript', headers={'Cache-Control': 'no-cache'})
 
 @app.get('/{name}')
 def assets(name: str):

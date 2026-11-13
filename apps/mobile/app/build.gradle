@@ -6,8 +6,8 @@ android {
         applicationId 'io.accufolio.app'
         minSdk 29
         targetSdk 35
-        versionCode 4
-        versionName '1.3.0'
+        versionCode 5
+        versionName '1.4.0'
     }
     signingConfigs {
         release {
@@ -23,6 +23,11 @@ android {
         release { signingConfig signingConfigs.release; minifyEnabled false }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    // Test HTTPS trust anchors are opted in only for the disposable CI debug build.
+    if (project.hasProperty('androidIntegration')) {
+        sourceSets.debug.manifest.srcFile 'src/integration/AndroidManifest.xml'
+        sourceSets.debug.res.srcDirs += ['src/integration/res', "$buildDir/generated/integration/res"]
+    }
     lint { abortOnError true; checkReleaseBuilds true }
 }
 dependencies { testImplementation 'junit:junit:4.13.2' }
