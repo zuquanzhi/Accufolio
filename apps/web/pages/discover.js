@@ -26,7 +26,8 @@ function chooseDiscovery(name){
   $('#backtest-panel').hidden=name!=='backtest';$('#monitoring').hidden=name!=='monitoring';sessionStorage.setItem('accufolio.discover-tab',name);
 }
 $$('[data-discover]').forEach(button=>button.onclick=()=>chooseDiscovery(button.dataset.discover));chooseDiscovery(sessionStorage.getItem('accufolio.discover-tab'));
-let runToken=0, activeRequest=null;
+let runToken=0, activeRequest=null, backtestChart=null;
+function clearBacktestResult(){backtestChart?.destroy();backtestChart=null;$('#backtest-result').replaceChildren();}
 function setBacktestBusy(busy){$('#run-history').disabled=busy;$('#run-manual').disabled=busy;$('#backtest').setAttribute('aria-busy',String(busy));}
 async function backtestRequest(path,options,signal){
   const response=await fetch(path,{...options,signal,headers:{'Content-Type':'application/json','X-Accufolio':'1'}});
@@ -40,14 +41,26 @@ function validateBars(bars){
   let previous='';
   for(const bar of bars){if(!/^\d{4}-\d{2}-\d{2}$/.test(bar.day)||!Number.isFinite(Number(bar.close))||Number(bar.close)<=0||bar.day<=previous)throw new Error('价格数据需要按日期递增，并包含有效的正数收盘价。');previous=bar.day;}
 }
-function renderBacktest(result){
+function renderBacktest(result,bars,monthly){
+  clearBacktestResult();
+  const chart=document.createElement('div');chart.className='backtest-chart';chart.id='backtest-chart';
+  const labels=[['fixed','固定月投'],['quarterly','季度投入'],['dip','等待回撤'],['blend','定投加码']];
+  const series=labels.map(([key,label])=>({key,label,points:(result.strategies[key].equity||[]).map(([day,value])=>({day,value}))}));
+  let invested=0,lastMonth='';const contribution=bars.map(bar=>{const month=bar.day.slice(0,7);if(month!==lastMonth){invested+=monthly;lastMonth=month;}return {day:bar.day,value:invested};});
+  series.push({key:'contribution',label:'累计投入',color:'#8b95a5',dash:'5 5',points:contribution});
+  $('#backtest-result').append(chart);
+  backtestChart=AccufolioCharts.renderLine(chart,{title:'同样的投入，不同的路径',description:'曲线为模拟账户资产，包含未投入现金。点击图例可单独比较策略。',series,format:money});
   const table=document.createElement('table');const heading=document.createElement('tr');for(const value of ['策略','投入','期末资产','收益','年化']){const cell=document.createElement('th');cell.textContent=value;heading.append(cell);}table.append(heading);
-  for(const [key,label] of [['fixed','固定月投'],['quarterly','季度投入'],['dip','等待回撤'],['blend','定投加码']]){const row=document.createElement('tr');const strategy=result.strategies[key];for(const value of [label,money(strategy.invested),money(strategy.value),(strategy.return_rate*100).toFixed(2)+'%',strategy.xirr==null?'样本不足或超出范围':(strategy.xirr*100).toFixed(2)+'%']){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);}
-  const stats=document.createElement('p');stats.textContent=`标的区间收益 ${(result.market.twr*100).toFixed(2)}% · 收盘价最大回撤 ${(result.market.max_drawdown*100).toFixed(2)}%（${result.market.drawdown_date}）`;$('#backtest-result').replaceChildren(stats,table);
+  for(const [key,label] of labels){const row=document.createElement('tr');const strategy=result.strategies[key];for(const value of [label,money(strategy.invested),money(strategy.value),(strategy.return_rate*100).toFixed(2)+'%',strategy.xirr==null?'样本不足或超出范围':(strategy.xirr*100).toFixed(2)+'%']){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);}
+  const stats=document.createElement('div');stats.className='backtest-statistics';
+  for(const [label,value,note] of [['标的区间涨跌',(result.market.twr*100).toFixed(2)+'%','收盘价变化，不含分红'],['标的最大回撤',(result.market.max_drawdown*100).toFixed(2)+'%',result.market.drawdown_date]]){const cell=document.createElement('div');for(const [tag,text] of [['span',label],['strong',value],['small',note]]){const node=document.createElement(tag);node.textContent=text;cell.append(node);}stats.append(cell);}
+  const details=document.createElement('details');details.className='backtest-detail';const summary=document.createElement('summary');summary.textContent='比较期末结果';const scroll=document.createElement('div');scroll.className='table-wrap';scroll.append(table);details.append(summary,scroll);
+  const note=document.createElement('p');note.className='backtest-note';note.textContent='投入会使资产曲线抬升，因此资产上升不等于投资回报；回撤指标属于标的价格，不是账户净值。';
+  $('#backtest-result').append(stats,details,note);
 }
 async function runBacktest(manual=false){
   const token=++runToken;activeRequest?.abort();const controller=new AbortController();activeRequest=controller;
-  setBacktestBusy(true);$('#backtest-error').textContent='';$('#history-method').textContent='';$('#backtest-result').replaceChildren();$('#history-status').textContent=manual?'正在计算…':'正在获取历史行情…';
+  setBacktestBusy(true);$('#backtest-error').textContent='';$('#history-method').textContent='';clearBacktestResult();$('#history-status').textContent=manual?'正在计算…':'正在获取历史行情…';
   try{
     const form=new FormData(backtestForm), monthly=Number(form.get('monthly'));let bars;
     if(!Number.isFinite(monthly)||monthly<=0)throw new Error('请填写有效的每月投入金额。');
@@ -68,13 +81,13 @@ async function runBacktest(manual=false){
       $('#history-status').textContent=`${history.source||'历史行情'} · ${cache} · 复权：${adjustment} · ${bars.length} 条（${bars[0].day} 至 ${bars[bars.length-1].day}）${history.errors?.length?' · '+history.errors.join('；'):''}`;
     }
     const result=await backtestRequest('/api/backtest',{method:'POST',body:JSON.stringify({monthly,bars})},controller.signal);
-    if(token===runToken)renderBacktest(result);
+    if(token===runToken)renderBacktest(result,bars,monthly);
   }catch(error){if(token===runToken&&error.name!=='AbortError'){$('#backtest-error').textContent=error.message+(manual?'':' 请重试“获取行情并回测”，或展开“手动数据”继续。');if(!$('#history-status').textContent.includes('条'))$('#history-status').textContent='';}}
   finally{if(token===runToken){activeRequest=null;setBacktestBusy(false);}}
 }
 backtestForm.onsubmit=event=>{event.preventDefault();runBacktest();};
 $('#run-manual').onclick=()=>runBacktest(true);
-backtestForm.addEventListener('input',()=>{if($('#backtest-result').childElementCount){$('#backtest-result').replaceChildren();$('#history-status').textContent='参数已修改，请重新回测。';$('#history-method').textContent='';}if(activeRequest){++runToken;activeRequest.abort();activeRequest=null;setBacktestBusy(false);$('#history-status').textContent='输入已更改，请重新开始回测。';}});
+backtestForm.addEventListener('input',()=>{if($('#backtest-result').childElementCount){clearBacktestResult();$('#history-status').textContent='参数已修改，请重新回测。';$('#history-method').textContent='';}if(activeRequest){++runToken;activeRequest.abort();activeRequest=null;setBacktestBusy(false);$('#history-status').textContent='输入已更改，请重新开始回测。';}});
 let monitoringToken=0, retryingNotifications=false;
 function renderWatchlist(watchlist,signals){
   const state=new Map((signals||[]).map(item=>[item.symbol,item]));

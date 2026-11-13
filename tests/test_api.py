@@ -72,7 +72,7 @@ class ApiTests(unittest.TestCase):
             response = self.client.get('/'+name, auth=self.auth)
             self.assertEqual(response.status_code, 200)
             self.assertIn('no-store', response.headers['cache-control'])
-            self.assertEqual(response.text.count('class="app-view"'), 1)
+            self.assertEqual(response.text.count('class="app-view'), 1)
             for other in ['assets', 'records', 'discover', 'settings']:
                 self.assertEqual(('id="view-'+other+'"') in response.text, other == name)
             self.assertIn('src="/pages/'+name+'.js"', response.text)
@@ -81,7 +81,7 @@ class ApiTests(unittest.TestCase):
         fragments = self.client.get('/api/ui/pages', auth=self.auth).json()
         self.assertEqual(set(fragments), {'assets', 'records', 'discover', 'settings'})
         for name, html in fragments.items():
-            self.assertEqual(html.count('class="app-view"'), 1)
+            self.assertEqual(html.count('class="app-view'), 1)
             self.assertIn('id="view-'+name+'"', html)
         for path in ['/pages/assets.html', '/pages/unknown.js', '/pages/../main.py']:
             self.assertEqual(self.client.get(path).status_code, 404)

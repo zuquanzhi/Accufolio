@@ -45,7 +45,7 @@ async def lifespan(app):
     yield
     stop.set()
 
-app = FastAPI(title='Accufolio', version='1.4.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='1.5.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -113,7 +113,7 @@ def version(actor: str = Depends(authorize)):
     for path in paths:
         digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '1.4.0'}
+    return {'version': digest.hexdigest(), 'release': '1.5.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
@@ -230,6 +230,10 @@ from apps.api.extended import router
 app.include_router(router)
 from apps.api.history import router as history_router
 app.include_router(history_router)
+from apps.api.dashboard import router as dashboard_router
+app.include_router(dashboard_router)
+from apps.api.allocation import router as allocation_router
+app.include_router(allocation_router)
 
 PAGES = {'assets': '资产', 'records': '记录', 'discover': '发现', 'settings': '设置'}
 
@@ -263,6 +267,8 @@ def page_script(filename: str):
 @app.get('/{name}')
 def assets(name: str):
     allowed = {'app.js': ('app.js', 'application/javascript'), 'style.css': ('style.css', 'text/css'),
+               'charts.js': ('charts.js', 'application/javascript'), 'charts.css': ('charts.css', 'text/css'),
+               'portfolio.js': ('portfolio.js', 'application/javascript'), 'dashboard.css': ('dashboard.css', 'text/css'),
                'sw.js': ('sw.js', 'application/javascript'), 'manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json'),
                'icon-192.png': ('../../assets/icon-192.png', 'image/png'), 'icon-512.png': ('../../assets/icon-512.png', 'image/png')}
     if name not in allowed: raise HTTPException(404)

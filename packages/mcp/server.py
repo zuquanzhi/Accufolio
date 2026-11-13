@@ -77,6 +77,45 @@ def get_health() -> dict:
     return health(actor='mcp')
 
 @mcp.tool()
+def get_dashboard(period: str = '1y') -> dict:
+    """Read the whole investment portfolio, allocation weights and reconstructed history."""
+    from apps.api.dashboard import dashboard
+    return dashboard(period=period, actor='mcp')
+
+@mcp.tool()
+def get_allocation_plan() -> dict:
+    """Read other-funds balance, separate investment/total-assets targets and revision."""
+    from apps.api.allocation import allocation
+    return allocation(actor='mcp')
+
+@mcp.tool()
+def set_allocation_plan(expected_revision: int, idempotency_key: str,
+                        reserve_amount: float | None = None, reserve_as_of: str | None = None,
+                        investment_targets: dict[str, float] | None = None,
+                        total_targets: dict[str, float] | None = None,
+                        note: str = '', dry_run: bool = True) -> dict:
+    """Replace allocation plan after reading latest revision. USD only, audited, retry-safe.
+
+    reserve_amount is an independently reported balance of other funds, not inferred
+    cash from trades. Update it explicitly when salary, spending or transfers change
+    it. All-asset value adds current stocks to this dated balance. Targets use percent
+    and must sum to 100; __RESERVE__ denotes other funds in total_targets only. Empty targets
+    clear that plan. This is a complete replacement: retain fields you want to keep.
+    UI is read-only. Preview by default, submit with dry_run=false and a unique key.
+    """
+    from apps.api.allocation import AllocationPlan, save_plan, allocation, validate_change
+    require_write()
+    plan = AllocationPlan(reserve_amount=reserve_amount, reserve_as_of=reserve_as_of,
+                          investment_targets=investment_targets or {}, total_targets=total_targets or {}, note=note)
+    validate_change(plan, expected_revision, idempotency_key)
+    if dry_run:
+        current = allocation(actor='mcp')
+        if current['revision'] != expected_revision:
+            raise ValueError('Allocation changed; read the latest plan before updating')
+        return {'preview': plan.model_dump(mode='json'), 'expected_revision': expected_revision}
+    return save_plan(plan, expected_revision, idempotency_key)
+
+@mcp.tool()
 def set_watchlist(symbol: str, threshold: float = 2) -> dict:
     """Set a symbol's absolute daily price-change alert threshold in percent."""
     from apps.api.extended import Watch, set_watchlist as save

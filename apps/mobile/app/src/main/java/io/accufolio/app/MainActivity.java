@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
                 saveServer(server);openServer(server);
             } catch(IllegalArgumentException e){error.setText(e.getMessage());error.setVisibility(View.VISIBLE);}
         });
-        Button update=button("版本 1.4.0 · 检查更新",false);update.setTextSize(13);update.setTextColor(MUTED);
+        Button update=button("版本 1.5.0 · 检查更新",false);update.setTextSize(13);update.setTextColor(MUTED);
         update.setBackgroundColor(Color.TRANSPARENT);update.setOnClickListener(v->AppUpdater.check(this));footer.addView(update);root.addView(footer);
     }
     private void saveServer(String server){
@@ -178,7 +178,7 @@ public class MainActivity extends Activity {
         root.removeAllViews();
         web=new WebView(this);web.setBackgroundColor(BACKGROUND);
         WebSettings options=web.getSettings();options.setJavaScriptEnabled(true);options.setDomStorageEnabled(true);
-        options.setUserAgentString(options.getUserAgentString()+" AccufolioAndroid/1.4.0");
+        options.setUserAgentString(options.getUserAgentString()+" AccufolioAndroid/1.5.0");
         options.setAllowFileAccess(false);options.setAllowContentAccess(false);options.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         options.setCacheMode(WebSettings.LOAD_NO_CACHE);options.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);web.setWebChromeClient(new WebChromeClient());

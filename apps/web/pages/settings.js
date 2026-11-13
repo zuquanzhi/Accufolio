@@ -5,13 +5,12 @@ const $$=selector=>[...root.querySelectorAll(selector)];
 const notify=message=>pageNotify(root,message);
 let lastLoaded=0;
 function updateSettingsMode(){
-  $('#ledger-mode').value=mode();$('#server-data-settings').hidden=mode()==='local';$('#system').hidden=mode()==='local';
+  $('#ledger-mode').value=mode();$('#server-data-settings').hidden=mode()==='local';$('#system').hidden=mode()==='local';$('#local-data-settings').hidden=mode()!=='local';
 }
 updateSettingsMode();
 $('#ledger-mode').onchange=()=>{
   const next=$('#ledger-mode').value;
-  if(mode()==='local'&&readDraft('trade')&&!confirm('切换记录方式会清空尚未保存的草稿，继续吗？')){$('#ledger-mode').value=mode();return;}
-  clearDraft('trade');localStorage.setItem(MODE_KEY,next);invalidateData();updateSettingsMode();notify('已切换记录方式。');
+  localStorage.setItem(MODE_KEY,next);invalidateData();updateSettingsMode();notify('已切换查看的记录。');
 };
 const nativeMatch=navigator.userAgent.match(/AccufolioAndroid\/(\d+)\.(\d+)/);
 const directNative=nativeMatch&&(Number(nativeMatch[1])>1||(Number(nativeMatch[1])===1&&Number(nativeMatch[2])>=4));

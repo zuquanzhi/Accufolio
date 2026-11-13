@@ -2,7 +2,7 @@
   <img src="assets/logo.png" alt="Accufolio logo" width="112">
   <h1>Accufolio</h1>
   <p><strong>Invest for the long term, one contribution at a time.</strong></p>
-  <p>A self-hosted investment journal for tracking contributions and seeing your progress.</p>
+  <p>A self-hosted investment dashboard, with data maintained by AI and a clear view of assets, allocation, and progress.</p>
   <p>
     <a href="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml"><img src="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml/badge.svg" alt="Build and test status"></a>
     <a href="https://github.com/zuquanzhi/Accufolio/releases/latest"><img src="https://img.shields.io/github/v/release/zuquanzhi/Accufolio" alt="Latest release"></a>
@@ -13,7 +13,7 @@
 
 ---
 
-Accufolio is a single-user, self-hosted app for long-term investors. Record buys and sells, review your holdings, compare contribution strategies, and follow market prices from a browser, a PWA, or the Android client. Your ledger is stored in your own SQLite database.
+Accufolio brings holdings across multiple securities, investment and profit curves, allocation targets, and strategy backtests into one dashboard. AI maintains transactions and allocation data through local MCP; the app provides a read-only view for analysis. Your data stays in your own SQLite database, accessible from a browser, a PWA, or the Android client.
 
 ## Preview
 
@@ -23,6 +23,7 @@ Accufolio is a single-user, self-hosted app for long-term investors. Record buys
 <summary>More views: backtesting, monitoring, mobile trades, and Android welcome screen</summary>
 <br>
 <img src="assets/previews/mobile-pages.jpg" alt="Four app routes" width="1000">
+<img src="assets/previews/mobile-allocation.png" alt="Total assets allocation and target gaps" width="280">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/web-monitoring.png" alt="Price monitoring" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
@@ -34,13 +35,25 @@ The device frames are illustrative; the screenshots show the running application
 
 ## Features
 
-- **Investment journal:** manage buys and sells via MCP, with an audit trail and undo for changes.
-- **Portfolio overview:** review holding cost, shares, average cost, market value, profit and loss, and XIRR.
-- **Strategy comparisons:** select a symbol and date range to fetch cached daily prices and compare four contribution strategies. Manual data remains available; source and adjustment details are visible.
+- **Portfolio overview:** aggregate market value, remaining cost, realized and unrealized gains, net investment, and XIRR across securities. View allocation by market value, cost, or share count.
+- **Historical perspective:** explore holdings value, cumulative net investment, and cumulative profit over one month, three months, one year, or all records. Read individual dates using touch or keyboard controls.
+- **Two allocation views:** the investment portfolio covers stock holdings; total assets add an independently reported other-funds balance and its as-of date. Compare market-value weights with separate allocation targets.
+- **Strategy comparisons:** fetch cached daily prices and compare four strategy curves against cumulative contributions. Manual price input remains available; source and adjustment details are visible.
 - **Price monitoring:** L1/L2/L3 movement alerts and a calm signal based on aligned stock and VIX closes. Missing or stale signal data is explicitly skipped.
 - **External alerts:** optional JSON Webhooks with a persistent outbox, retries, and delivery status.
-- **Your data:** SQLite storage, daily and manual database backups, JSON trade export, and optional local MCP access that defaults to read-only.
-- **Multiple devices:** access one self-hosted instance from desktop browsers, a mobile PWA, or the Android app.
+- **AI-maintained data:** MCP tools manage buys, sells, other funds, and targets. Write access requires explicit configuration and supports previews, audit history, and retry-safe changes.
+- **Multiple devices:** access the same dashboard from desktop browsers, a PWA, or Android. Database backups and JSON exports are available; older on-device records remain available for read-only viewing and export.
+
+## What the numbers mean
+
+| View | Data and purpose |
+|---|---|
+| **Investment portfolio** | Current stock holdings, weighted by market value, remaining cost, or share count. Share weights compare quantities, not capital allocation. |
+| **Total assets** | Current stock market value plus an independently reported other-funds balance, with its as-of date. Cash is never inferred from trades. |
+| **Allocation targets** | Separate targets for the portfolio and total assets. Gaps use market value only; they do not create or execute orders. |
+| **History** | Stock holdings reconstructed from transactions and unadjusted closing prices. Missing values remain gaps; today's other-funds balance is not inserted into history. This is not account NAV. |
+
+Net investment equals cumulative purchases minus sale proceeds. Cumulative profit equals holdings value minus net investment. XIRR uses buys, sells, and terminal holdings value; short samples and cash flows without a unique supported solution show an explicit reason. See the [calculation and allocation guide](guides/使用与部署.md#看板与资产配置) for details (Chinese).
 
 ## Quick start
 
@@ -66,7 +79,7 @@ The [deployment and usage guide](guides/使用与部署.md) contains environment
 
 ## Mobile access
 
-Four routes organize the app: `/assets`, `/records`, `/discover`, and `/settings`. In-app navigation keeps the document and connection alive, preserving scroll position and drafts. Each route also supports direct loading and refresh. Account selection, refresh, and Android connection/update controls live in Settings. The server-backed portfolio is read-only in the interface; the separate on-device journal supports manual entries.
+Four routes organize the app: `/assets`, `/records`, `/discover`, and `/settings`. In-app navigation keeps the document and connection alive, preserving scroll position and analysis parameters. Each route also supports direct loading and refresh. Data-source selection, refresh, and Android connection/update controls live in Settings. Asset and transaction data is read-only in the interface and maintained through MCP. Older on-device records remain viewable and exportable, with no editing or upload.
 
 
 | Option | Requirements | Getting started |
@@ -89,11 +102,11 @@ Browser / PWA / Android client
        Local MCP client (optional)
 ```
 
-The application uses HTTP Basic authentication. Use HTTPS for remote access and protect your password and database backups. MCP runs as a local process and is read-only by default; write access must be explicitly enabled. The server ledger is read-only in the interface; the separate device-local ledger is stored in the current browser origin, is not synchronized or included in server backups, and requires the server to load the interface. Clearing browser data or uninstalling the app can delete it.
+The application uses HTTP Basic authentication. Use HTTPS for remote access and protect your password and database backups. MCP runs as a local process and is read-only by default; write access must be explicitly enabled. Older device-local records stay in the current browser origin; they are not uploaded or included in server backups. Export them before clearing browser data or uninstalling the app. The server is still required to load the interface; independent offline startup is not supported.
 
 ## Scope and limitations
 
-The current release focuses on a single-user, USD buy/sell ledger. It does not connect to a broker or place orders. Dividends, fees, multiple currencies, broker sync, and remote MCP are not supported. Sina daily closes are unadjusted: splits can distort results and dividends are not reinvested. Stale data is visibly flagged. Webhooks use generic JSON and require a compatible receiver or adapter; set `ACCUFOLIO_WEBHOOK_URL` and optionally `ACCUFOLIO_WEBHOOK_TOKEN` in the deployment environment. Quotes may be delayed or unavailable; historical results do not guarantee future returns. Planned work and exclusions are tracked in the [roadmap](guides/roadmap.md).
+The current release focuses on a single-user, USD investment dashboard. It does not connect to a broker or place orders. Dividends, fees, multiple currencies, broker sync, and remote MCP are not supported. Other funds are a reported balance snapshot, not a complete cash ledger. Sina daily closes are unadjusted: splits can distort historical curves and backtests, and dividends are not reinvested. Stale data is visibly flagged. Webhooks use generic JSON and require a compatible receiver or adapter; set `ACCUFOLIO_WEBHOOK_URL` and optionally `ACCUFOLIO_WEBHOOK_TOKEN` in the deployment environment. Quotes may be delayed or unavailable; historical results do not guarantee future returns. Planned work and exclusions are tracked in the [roadmap](guides/roadmap.md).
 
 ## Development
 

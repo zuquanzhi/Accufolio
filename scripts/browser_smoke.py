@@ -1,5 +1,8 @@
 """Browser regression suite. Uses local Edge on Windows or installed Chromium on CI."""
 import os
+import json
+from copy import deepcopy
+from datetime import date
 import socket
 import subprocess
 import sys
@@ -8,6 +11,9 @@ import time
 from pathlib import Path
 from urllib.request import urlopen
 from playwright.sync_api import sync_playwright, expect
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from packages.core.dashboard import build_dashboard
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,10 +34,22 @@ def main():
                 if os.name=='nt':options['channel']='msedge'
                 browser=p.chromium.launch(**options)
                 context=browser.new_context(http_credentials={'username':'admin','password':'browser-test'},viewport={'width':1280,'height':900})
+                # Provider-facing endpoints are mocked for every page/context; no real market traffic.
+                quote_reply={'shares':0,'cost':0,'average_price':None,'position':None,'quote':None,'degraded':True,'errors':['test offline'],'xirr':None,'xirr_reason':'样本不足'}
+                dashboard_reply=build_dashboard([],{}, {},date(2025,1,1),date(2025,3,3))
+                allocation_reply={'reserve_amount':None,'reserve_as_of':None,'investment_targets':{},'total_targets':{},'revision':0,'updated_at':None}
+                dashboard_requests=[]
+                def dashboard_response(route):
+                    dashboard_requests.append(route.request.url)
+                    result=deepcopy(dashboard_reply)
+                    if 'include_history=false' in route.request.url:result.update(history_loaded=False,series=[])
+                    route.fulfill(json=result)
+                context.route('**/api/dashboard?*',dashboard_response)
+                context.route('**/api/allocation',lambda route:route.fulfill(json=allocation_reply))
+                context.route('**/api/summary?*',lambda route:route.fulfill(json=quote_reply))
                 page=context.new_page(); errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-                page.route('**/api/summary?*',lambda route:route.fulfill(json={'shares':0,'cost':0,'average_price':None,'position':None,'quote':None,'degraded':True,'errors':['test offline'],'xirr':None,'xirr_reason':'样本不足'}))
                 versions=['test-v1']
-                page.route('**/api/version',lambda route:route.fulfill(json={'version':versions[0],'release':'1.4.0'}))
+                page.route('**/api/version',lambda route:route.fulfill(json={'version':versions[0],'release':'1.5.0'}))
                 historical_bars=[{'day':'2025-01-02','close':100},{'day':'2025-02-03','close':50},{'day':'2025-03-03','close':100}]
                 history_reply={'bars':historical_bars,'source':'Test history','cached':False,'stale':False,'adjustment':'unadjusted','adjustment_note':'未复权收盘价；不包含分红再投资。','errors':[]}
                 history_status=[200]
@@ -67,34 +85,42 @@ def main():
                 page.wait_for_url(base+'/assets')
                 expect(page.locator('#view-assets')).to_be_visible()
                 expect(page.locator('#view-records')).to_have_count(0)
+                expect(page.locator('#value')).to_have_text('$0.00')
+                page.wait_for_function("!document.querySelector('#view-assets').hasAttribute('aria-busy')")
+                assert any('include_history=false' in url for url in dashboard_requests)
+                assert any('include_history' not in url for url in dashboard_requests)
+                legacy_records=[{'id':'legacy-buy','symbol':'QQQM','trade_date':'2025-01-01','shares':3,'price':100,'side':'buy','note':'保留的设备记录'},
+                                {'id':'legacy-sell','symbol':'QQQM','trade_date':'2025-02-01','shares':1,'price':120,'side':'sell','note':'历史卖出'}]
+                legacy_draft={'values':{'symbol':'AAPL','shares':'4'},'baseline':'untouched'}
+                page.evaluate("({rows,draft})=>{localStorage.setItem(LOCAL_KEY,JSON.stringify(rows));sessionStorage.setItem(DRAFT_KEYS.trade,JSON.stringify(draft));}",{'rows':legacy_records,'draft':legacy_draft})
                 tab('settings')
                 expect(page.locator('#native-settings')).to_be_hidden()
                 page.select_option('#ledger-mode','local')
-                tab('records');page.locator('#new-trade').click()
-                page.locator('#trade [name=shares]').fill('2')
-                page.locator('#trade [name=price]').fill('100')
-                page.locator('#save-trade').click()
-                expect(page.locator('#trades')).to_contain_text('2 股')
-                page.locator('#trades').get_by_role('button',name='编辑').click()
-                page.locator('#trade [name=shares]').fill('3')
-                page.locator('#save-trade').click()
+                tab('records')
                 expect(page.locator('#trades')).to_contain_text('3 股')
-                page.locator('#new-trade').click()
-                page.locator('#trade [name=side]').select_option('sell')
-                page.locator('#trade [name=shares]').fill('4')
-                page.locator('#trade [name=price]').fill('120')
-                page.locator('#save-trade').click()
-                expect(page.locator('#local-entry')).to_contain_text('超过当时持仓')
-                page.locator('#trade [name=shares]').fill('1');page.locator('#save-trade').click()
                 expect(page.locator('#trades')).to_contain_text('1 股')
+                for selector in ['#new-trade','#trade','#local-entry','.trade-actions']:expect(page.locator(selector)).to_have_count(0)
+                asset_writes=[]
+                write_listener=lambda req:asset_writes.append(req.url) if req.method not in ('GET','HEAD') and '/api/' in req.url else None
+                page.on('request',write_listener)
+                page.locator('#export-local-records').click()
+                expect(page.locator('#local-export-json')).to_have_attribute('readonly','')
+                assert json.loads(page.locator('#local-export-json').input_value())['trades']==legacy_records
+                with page.expect_download() as exported:page.locator('#download-local-export').click()
+                assert json.loads(Path(exported.value.path()).read_text(encoding='utf-8'))['trades']==legacy_records
+                page.locator('#close-local-export').click()
+                assert not asset_writes,asset_writes
+                page.remove_listener('request',write_listener)
                 tab('assets');expect(page.locator('#shares')).to_have_text('2.0000')
                 page.reload();expect(page.locator('#shares')).to_have_text('2.0000')
+                page.evaluate('scrollTo(0,450)');saved_scroll=page.evaluate('scrollY')
+                tab('settings');tab('assets');assert abs(page.evaluate('scrollY')-saved_scroll)<5
                 tab('records');expect(page.locator('#trades')).to_contain_text('1 股')
                 # A failed account must never display the previous account's values or controls.
                 page.route('**/api/trades',lambda route:route.fulfill(status=503,json={'detail':'offline'}))
                 tab('settings');page.select_option('#ledger-mode','server')
                 page.go_back();page.wait_for_url(base+'/records')
-                expect(page.locator('#new-trade')).to_be_hidden()
+                expect(page.locator('#new-trade')).to_have_count(0)
                 expect(page.locator('#trades')).not_to_contain_text('1 股')
                 expect(page.locator('#trades button')).to_have_count(0)
                 tab('assets');expect(page.locator('#shares')).to_have_text('—')
@@ -221,56 +247,90 @@ def main():
                 expect(page.locator('#view-discover')).to_be_visible()
                 assert not requested, requested
                 context.set_offline(False);page.remove_listener('request',listener)
-                # A pending quote never blocks leaving the overview, and its late response is isolated.
-                slow=context.new_page();slow.on('pageerror',lambda error:errors.append(str(error)))
-                held=[];slow.route('**/api/summary?*',lambda route:held.append(route))
+                # Pending headline/history requests never block tabs or leak notices into another page.
+                slow_context=browser.new_context(http_credentials={'username':'admin','password':'browser-test'})
+                slow_context.route('**/api/allocation',lambda route:route.fulfill(json=allocation_reply))
+                slow_context.route('**/api/summary?*',lambda route:route.fulfill(json=quote_reply))
+                slow_context.route('**/api/trades',lambda route:route.fulfill(json=[]))
+                slow_context.route('**/api/dashboard?*',dashboard_response)
+                slow=slow_context.new_page();slow.on('pageerror',lambda error:errors.append(str(error)))
+                held=[]
+                def slow_headline(route):
+                    if 'include_history=false' in route.request.url:held.append(route)
+                    else:dashboard_response(route)
+                slow.route('**/api/dashboard?*',slow_headline)
                 slow.goto(base+'/assets');slow.wait_for_function('pageTemplates !== null')
                 slow.evaluate('window.__slowMarker=42')
                 slow.locator("a[data-view='records']").click()
                 expect(slow.locator('#view-records')).to_be_visible(timeout=1000)
                 assert slow.evaluate('window.__slowMarker')==42
-                for route in held:route.fulfill(json={'shares':0,'cost':0,'average_price':None,'position':None,'quote':None,'degraded':True,'errors':['delayed quote'],'xirr':None})
+                late=deepcopy(dashboard_reply);late['coverage']['quote_missing_symbols']=['delayed quote'];late['history_loaded']=False
+                for route in held:route.fulfill(json=late)
                 expect(slow.locator('#view-records')).to_be_visible();slow.wait_for_timeout(150)
                 assert 'delayed quote' not in slow.locator('#notice').inner_text()
                 slow.close()
-                # Record sheet drafts belong to this tab and survive navigating away.
-                tab('records');page.locator('#new-trade').click();page.locator('#trade [name=shares]').fill('4');page.locator('#close-trade').click()
-                tab('settings');tab('records');page.locator('#new-trade').click()
-                expect(page.locator('#trade [name=shares]')).to_have_value('4');page.locator('#close-trade').click()
+                staged=slow_context.new_page();staged.on('pageerror',lambda error:errors.append(str(error)));history_held=[]
+                def slow_dashboard_history(route):
+                    if 'include_history=false' in route.request.url:dashboard_response(route)
+                    else:history_held.append(route)
+                staged.route('**/api/dashboard?*',slow_dashboard_history)
+                staged.goto(base+'/assets');expect(staged.locator('#value')).to_have_text('$0.00')
+                expect(staged.locator('#portfolio-chart')).to_contain_text('正在读取历史行情')
+                staged.evaluate('window.__stagedMarker=17');staged.locator("a[data-view='settings']").click()
+                expect(staged.locator('#view-settings')).to_be_visible(timeout=1000)
+                assert staged.evaluate('window.__stagedMarker')==17
+                for route in history_held:route.fulfill(json=dashboard_reply)
+                expect(staged.locator('#view-settings')).to_be_visible();staged.close();slow_context.close()
+                # Legacy device data and draft survive mode changes; only editable drafts block updates.
+                assert page.evaluate("readDraft('trade')")==legacy_draft
                 page.wait_for_function('appVersion !== null')
                 versions[0]='test-v2';page.evaluate('checkVersion()');expect(page.locator('#notice')).to_contain_text('新版本')
-                page.locator('#new-trade').click();page.locator('#trade [name=shares]').fill('');page.locator('#trade [name=side]').select_option('sell')
-                assert page.evaluate("Boolean(readDraft('trade'))"), 'Direction-only draft must be protected'
-                page.locator('#close-trade').click()
                 tab('settings')
-                page.once('dialog',lambda dialog:dialog.accept());page.select_option('#ledger-mode','server')
+                page.select_option('#ledger-mode','server')
                 page.select_option('#ledger-mode','local')
-                page.go_back();page.wait_for_url(base+'/records');expect(page.locator('#new-trade')).to_be_visible()
-                assert page.evaluate("readDraft('trade')") is None, 'Confirmed clear must survive browser back'
-                tab('settings');page.select_option('#ledger-mode','local');tab('records');page.locator('#new-trade').click()
-                expect(page.locator('#trade [name=side]')).to_have_value('buy');expect(page.locator('#trade [name=shares]')).to_have_value('');page.locator('#close-trade').click()
+                tab('records');expect(page.locator('#new-trade')).to_have_count(0)
+                assert page.evaluate("readDraft('trade')")==legacy_draft
+                assert page.evaluate("readLocal()")==legacy_records
                 tab('discover');page.locator("button[data-discover='backtest']").click();page.locator('#backtest [name=bars]').fill('');page.locator('#backtest [name=monthly]').fill('400')
                 page.wait_for_function('appVersion !== null');versions[0]='test-v3';page.evaluate('checkVersion()');expect(page.locator('#notice')).to_contain_text('新版本')
+                # A threshold-only watch draft is preserved too, across a reload and navigation.
+                page.locator("button[data-discover='monitoring']").click();page.locator('#watch-form [name=threshold]').fill('3')
+                tab('records');tab('discover');expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
+                page.reload();expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
+                page.locator('#watch-form [name=threshold]').fill('2')
+                page.locator("button[data-discover='backtest']").click()
                 page.locator('#backtest [name=monthly]').fill('300')
+                assert not page.evaluate('hasDrafts()'), 'Only legacy trade draft should remain'
+                versions[0]='test-v4'
                 with page.expect_navigation():page.evaluate('checkVersion()')
+                assert page.evaluate("readDraft('trade')")==legacy_draft
                 tab('records');page.locator('#trades .trade-row').first.wait_for()
                 page.goto(base+'/#settings');page.wait_for_url(base+'/settings');expect(page.locator('#view-settings')).to_be_visible()
                 # All routes can be opened independently without a preceding home visit.
                 for view in ['assets','records','discover','settings']:
                     page.goto(base+'/'+view);expect(page.locator('#view-'+view)).to_be_visible();expect(page.locator('.app-view')).to_have_count(1)
                 if os.environ.get('ACCUFOLIO_SCREENSHOT'):page.screenshot(path=os.environ['ACCUFOLIO_SCREENSHOT'],full_page=True)
-                for version in ['1.3.0','1.4.0']:
+                for version in ['1.3.0','1.5.0']:
                     native=browser.new_context(http_credentials={'username':'admin','password':'browser-test'},user_agent='Mozilla/5.0 AccufolioAndroid/'+version,viewport={'width':390,'height':844})
+                    native.add_init_script('Object.defineProperty(navigator,"clipboard",{value:{writeText:()=>Promise.reject(new Error("test denied"))}})')
                     np=native.new_page();np.goto(base+'/settings')
-                    if version=='1.4.0':
+                    if version=='1.5.0':
                         expect(np.locator('#native-settings')).to_be_hidden()
                         for action in ['connection','update','reload']:
                             expect(np.locator('#native-'+action)).to_be_visible();expect(np.locator('#native-'+action)).to_have_attribute('href','accufolio://'+action)
                     else:expect(np.locator('#native-settings')).to_be_visible()
+                    np.evaluate("rows=>localStorage.setItem(LOCAL_KEY,JSON.stringify(rows))",legacy_records)
+                    np.select_option('#ledger-mode','local');np.locator("a[data-view='records']").click()
+                    expect(np.locator('#trades')).to_contain_text('保留的设备记录')
+                    np.locator('#export-local-records').click();expect(np.locator('#download-local-export')).to_be_hidden()
+                    np.locator('#copy-local-export').click();expect(np.locator('#local-export-status')).to_contain_text('长按')
+                    field=np.locator('#local-export-json')
+                    assert field.evaluate('(element)=>element.selectionEnd-element.selectionStart')==len(field.input_value())
+                    assert json.loads(field.input_value())['trades']==legacy_records
                     native.close()
                 assert not errors, errors
                 browser.close()
-            print('Browser tests passed: local buy/sell, oversell protection, persistence, account separation, stable-document routes, warmed offline navigation, delayed quote isolation, automatic history backtests and cancellation, manual fallback, signal levels, notification status and mocked retries, direct routes, back/reload drafts, mobile layouts and native settings links')
+            print('Browser tests passed: read-only device records and local export, legacy data/draft preservation, account separation, two-stage dashboard loading, stable-document routes/scroll, warmed offline navigation, delayed response isolation, automatic history backtests/cancellation, signal and notification status, editable draft protection and version reload, mobile layouts and native settings links')
         finally:
             process.terminate();process.wait(timeout=15)
 

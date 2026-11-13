@@ -24,6 +24,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git archive --format=zip --prefix=Accufolio/ --output=Accufolio-${GITHUB_REF_NAME}.zip HEAD
-          cp dist/Accufolio-1.4.0.apk .
-          sha256sum Accufolio-${GITHUB_REF_NAME}.zip Accufolio-1.4.0.apk > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" "Accufolio-${GITHUB_REF_NAME}.zip" Accufolio-1.4.0.apk SHA256SUMS --title "Accufolio $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md --verify-tag
+          cp dist/Accufolio-1.5.0.apk .
+          sha256sum Accufolio-${GITHUB_REF_NAME}.zip Accufolio-1.5.0.apk > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" "Accufolio-${GITHUB_REF_NAME}.zip" Accufolio-1.5.0.apk SHA256SUMS --title "Accufolio $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md --verify-tag

@@ -25,7 +25,8 @@ function readDraft(name) {
 }
 function saveDraft(name,data) {sessionStorage.setItem(DRAFT_KEYS[name],JSON.stringify(data));}
 function clearDraft(name) {sessionStorage.removeItem(DRAFT_KEYS[name]);}
-function hasDrafts() {return Object.keys(DRAFT_KEYS).some(name=>Boolean(readDraft(name)));}
+// Legacy trade drafts remain stored, but the read-only journal cannot edit them.
+function hasDrafts() {return ['backtest','watch'].some(name=>Boolean(readDraft(name)));}
 function readLocal() {
   const raw=localStorage.getItem(LOCAL_KEY);if(!raw)return [];
   const result=JSON.parse(raw);

@@ -40,15 +40,28 @@ def prepare():
 
 
 def serve():
-    from datetime import date
+    from datetime import date, timedelta
     import uvicorn
     import apps.api.main as api
     import apps.api.extended as monitoring
+    import apps.api.dashboard as dashboard
+    from apps.api.allocation import AllocationPlan, save_plan
     from packages.providers import Quote, QuoteResult
-    quote = lambda symbol: QuoteResult(Quote(symbol, 204.75, .84, 'test', 0), False, ())
+    quote = lambda symbol: QuoteResult(Quote(symbol, 225.6 if symbol == 'AAPL' else 204.75, .84, 'test', 0), False, ())
     api.get_quote = quote
     monitoring.get_quote = quote
+    dashboard.get_quote = quote
+    def history(symbol, start, end):
+        count=(end-start).days
+        return {'bars':[{'day':(start+timedelta(days=i)).isoformat(),
+                         'close':round(quote(symbol).quote.price*(.85+.15*i/max(1,count)),2)} for i in range(count+1)],
+                'source':'fixture','cached':True,'stale':False,'errors':[],'warnings':[]}
+    dashboard.get_history = history
     api.mutate_trade('add', api.Trade(symbol='QQQM', trade_date=date(2025, 1, 2), shares=2, price=180), None, 'integration')
+    api.mutate_trade('add', api.Trade(symbol='AAPL', trade_date=date(2025, 2, 3), shares=3, price=190), None, 'integration')
+    save_plan(AllocationPlan(reserve_amount=913.7,reserve_as_of=date.today(),
+                            investment_targets={'QQQM':40,'AAPL':60},
+                            total_targets={'QQQM':25,'AAPL':35,'__RESERVE__':40}),0,'integration-plan','integration')
 
     @api.app.middleware('http')
     async def log_navigation(request, call_next):
@@ -203,6 +216,10 @@ def run(apk):
             initial_documents=document_requests()
             assert initial_documents==['/assets'],initial_documents
             capture('android-assets.png')
+            tap(named(ui,'全部资产'))
+            ui=wait_ui(lambda tree:any('$2,000.00' in item for item in items(tree)), 'total assets valuation',reject_login=True)
+            assert any('总资产估值' in item for item in items(ui)),items(ui)
+            tap(named(ui,'投资组合'));ui=wait_page('/assets')
             for label, route in [('记录','/records'),('发现','/discover'),('设置','/settings')]:
                 tap(named(ui,label));ui=wait_page(route)
                 assert document_requests()==initial_documents,('Tab reloaded the document',route,document_requests())

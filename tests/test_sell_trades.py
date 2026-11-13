@@ -36,6 +36,8 @@ class SellTradesTest(unittest.TestCase):
             self.assertEqual(result['cost'],450)
             self.assertEqual(result['realized_pnl'],70)
             self.assertEqual(result['position']['pnl'],90)
+            self.assertIsNotNone(result['xirr'])
+            self.assertIsNone(result['xirr_reason'])
             with self.assertRaises(HTTPException):
                 add_trade('QQQM','2025-02-15',5,220,'oversell',dry_run=False,side='sell')
             # Undoing the second buy would make a later sale invalid.
