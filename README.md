@@ -5,7 +5,7 @@
   <p><a href="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/zuquanzhi/Accufolio/releases">Releases</a> · <a href="LICENSE">Apache 2.0</a></p>
 </div>
 
-Accufolio 是面向长期定投者的单用户、自托管投资账本。v1 聚焦买入记录、持仓分析、策略比较、行情监控和 AI 账本管理；支持手机安装为 PWA。数据保存在你自己的 SQLite 数据库中。
+Accufolio 是面向长期定投者的单用户、自托管投资账本。v1 聚焦买入记录、持仓分析、策略比较、行情监控和 AI 账本管理；支持 Android APK 与手机 PWA。数据保存在你自己的 SQLite 数据库中。
 
 ## v1 功能
 
@@ -60,9 +60,19 @@ docker compose up -d --build
 docker compose -f compose.yml -f compose.https.yml up -d --build
 ```
 
-## 手机安装和升级
+## Android APK 下载与安装
 
-用 Android Chrome 或 iOS Safari 打开你的 **HTTPS** 站点，选择「安装应用」/「添加到主屏幕」。这是联网使用的 PWA，**不是原生 APK**。服务器部署新版本后，手机会检测并加载新网页，无需重新下载安装包。首次安装入口取决于系统和浏览器；未进行实体手机兼容性测试。
+在 [最新 Release](https://github.com/zuquanzhi/Accufolio/releases/latest) 的 **Assets** 中下载 `Accufolio-1.1.0.apk`，不要下载源码 ZIP。支持 Android 10 及以上。按系统提示允许当前下载来源安装应用，安装后输入你部署的 Accufolio **HTTPS 根地址**并登录。
+
+APK 是连接自托管服务器的 Android 客户端，**不内置服务器或示例账户**，需要先按上文部署后端。只允许连接指定的 HTTPS 站点，不允许明文 HTTP 或无效证书。用户名、密码仅用于当前会话，不由客户端写入磁盘。交易导出文件保存在手机「下载」目录。
+
+服务器发布新的网页功能后，客户端会自动检测更新并保护未保存的表单；无需重新下载安装。Android 原生壳本身发生变更时仍需安装新版 APK，不能绕过 Android 的安装确认。正式 APK 使用同一个发布密钥签名，后续版本支持覆盖安装。
+
+构建环境：JDK 17、Gradle 8.11.1、Android SDK 35。`gradle -p apps/mobile testDebugUnitTest lintDebug assembleDebug` 可构建测试包。正式发布使用 GitHub Secrets 中的 `ANDROID_KEYSTORE_BASE64` 和 `ANDROID_KEYSTORE_PASSWORD`，私钥不进入源码或 Release。
+
+## PWA 安装和升级
+
+用 Android Chrome 或 iOS Safari 打开你的 **HTTPS** 站点，选择「安装应用」/「添加到主屏幕」。这是联网使用的 PWA，**不是原生 APK**。服务器部署新版本后，手机会检测并加载新网页，无需重新下载安装包。首次安装入口取决于系统和浏览器；已完成浏览器回归；实体手机兼容性仍需实际设备验证。
 
 服务端升级仍由部署者操作：先备份，再 `git pull --ff-only`，然后 `docker compose up -d --build`。Python 运行方式需重新安装依赖并重启服务。不要使用 `docker compose down -v`，它会删除数据卷。
 
@@ -108,7 +118,7 @@ python -m playwright install chromium  # Windows 本机测试使用已有 Edge
 python scripts/browser_smoke.py
 ```
 
-Actions 验证 Python 3.11/3.12/3.13、Chromium 浏览器流程和 Docker 启动。推送 `v*` 标签时会重新运行完整验证，成功后创建 Release，附源码 ZIP 和 SHA-256 校验文件。
+Actions 验证 Python 3.11/3.12/3.13、Chromium 浏览器流程、Docker 启动、Android 单元测试与 lint，并在 Android 15 模拟器安装、启动 APK 和验证服务器地址输入。推送 `v*` 标签时会重新运行完整验证，成功后创建 Release，附签名 APK、源码 ZIP 和 SHA-256 校验文件。
 
 ## 范围
 
