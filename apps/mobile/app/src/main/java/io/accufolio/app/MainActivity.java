@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private TextView status;
     private Button recoverySettings;
-    private String origin, authorization;
+    private String origin, authorization, mainDocument;
     private boolean pageFailed;
     private final List<HttpAuthHandler> pendingAuth = new ArrayList<>();
     private AlertDialog loginDialog;
@@ -168,8 +168,12 @@ public class MainActivity extends Activity {
             }catch(IllegalArgumentException e){error.setText(e.getMessage());}
         }));dialog.show();
     }
-    private void connectionFailed(String message){
-        pageFailed=true;status.setVisibility(View.VISIBLE);status.setText(message);recoverySettings.setText("连接设置");recoverySettings.setVisibility(View.VISIBLE);recovery.setVisibility(View.VISIBLE);
+    private void connectionFailed(String message){connectionFailed(message,true);}
+    private void connectionFailed(String message,boolean hideDocument){
+        pageFailed=true;
+        // Preserve the WebView, history and device storage, but never expose Chromium's error page.
+        if(hideDocument && web!=null)web.setVisibility(View.INVISIBLE);
+        status.setVisibility(View.VISIBLE);status.setText(message);recoverySettings.setText("连接设置");recoverySettings.setVisibility(View.VISIBLE);recovery.setVisibility(View.VISIBLE);
     }
 
     @SuppressLint("SetJavaScriptEnabled") // Only the explicitly configured HTTPS origin is permitted; no JS bridge.
@@ -187,7 +191,7 @@ public class MainActivity extends Activity {
         recovery=column(18);recovery.setBackground(surface(SURFACE,20));status=label("正在连接…",14,MUTED);recovery.addView(status);
         recoverySettings=button("连接设置",false);recoverySettings.setOnClickListener(v->showSettings());recovery.addView(recoverySettings);
         web.setWebViewClient(new WebViewClient(){
-            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap icon){pageFailed=false;status.setVisibility(View.VISIBLE);status.setText("正在连接…");recoverySettings.setText("连接设置");recoverySettings.setVisibility(View.VISIBLE);recovery.setVisibility(View.VISIBLE);}
+            @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap icon){if(!ServerPolicy.isTrusted(origin,url))return;mainDocument=url;view.setVisibility(View.VISIBLE);pageFailed=false;status.setVisibility(View.VISIBLE);status.setText("正在连接…");recoverySettings.setText("连接设置");recoverySettings.setVisibility(View.VISIBLE);recovery.setVisibility(View.VISIBLE);}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){
                 String target=request.getUrl().toString();
                 if(ServerPolicy.canOpenSettings(origin,view.getUrl(),target,request.isForMainFrame(),request.hasGesture())){showSettings();return true;}
@@ -209,7 +213,12 @@ public class MainActivity extends Activity {
             }
             @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame())connectionFailed("暂时无法连接。你可以检查网络，或更换连接地址。");}
             @Override public void onReceivedHttpError(WebView view,WebResourceRequest request,WebResourceResponse response){if(request.isForMainFrame())connectionFailed("站点暂时不可用（"+response.getStatusCode()+"）。请稍后重试或检查连接。");}
-            @Override public void onReceivedSslError(WebView view,SslErrorHandler handler,SslError error){handler.cancel();connectionFailed("无法验证站点安全证书。请检查连接地址和证书设置。");}
+            @Override public void onReceivedSslError(WebView view,SslErrorHandler handler,SslError error){
+                handler.cancel();
+                // SSL errors can belong to a subresource. Do not blank a healthy main document.
+                boolean mainFrame=error.getUrl()!=null && error.getUrl().equals(mainDocument);
+                connectionFailed("无法验证站点安全证书。请检查连接地址和证书设置。",mainFrame);
+            }
             @Override public void onReceivedHttpAuthRequest(WebView view,HttpAuthHandler handler,String host,String realm){
                 if(!URI.create(origin).getHost().equalsIgnoreCase(host)){handler.cancel();return;}promptLogin(handler);
             }
@@ -222,7 +231,7 @@ public class MainActivity extends Activity {
                 Toast.makeText(this,"已开始导出，文件保存在下载目录",Toast.LENGTH_LONG).show();
             }catch(Exception e){Toast.makeText(this,"无法导出，请在浏览器中重试",Toast.LENGTH_LONG).show();}
         });
-        root.addView(web,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1));root.addView(recovery);web.loadUrl(origin);
+        root.addView(web,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1));root.addView(recovery);mainDocument=origin;web.loadUrl(origin);
     }
 
     private void promptLogin(HttpAuthHandler handler){
