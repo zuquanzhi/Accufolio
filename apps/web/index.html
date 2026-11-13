@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta name="accufolio-ui" content="1.5">
+  <meta name="accufolio-ui" content="2.0">
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f5f6fa"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/charts.css"><link rel="stylesheet" href="/dashboard.css"><title>{{title}} · Accufolio</title>
 </head>
 <body data-page="{{page}}">
 <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
 <symbol id="icon-assets" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="5"/><path d="M3 9h18m-7 5h3"/></symbol>
+<symbol id="icon-investments" viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M7 14l4-4 4 2 5-7"/><path d="M16 5h4v4"/></symbol>
 <symbol id="icon-records" viewBox="0 0 24 24"><path d="M8 3h8a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Z"/><path d="M8 8h8M8 12h8M8 16h4"/></symbol>
 <symbol id="icon-discover" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></symbol>
 <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></symbol>
@@ -21,6 +22,6 @@
   <div id="notice" role="status" aria-live="polite"></div>
 <div id="page-root" data-page="{{page}}"><!--PAGE--></div>
 </main>
-<nav class="tab-bar" aria-label="主导航"><a data-view="assets" href="/assets" {{current-assets}}><svg class="icon"><use href="#icon-assets"/></svg><span>资产</span></a><a data-view="records" href="/records" {{current-records}}><svg class="icon"><use href="#icon-records"/></svg><span>记录</span></a><a data-view="discover" href="/discover" {{current-discover}}><svg class="icon"><use href="#icon-discover"/></svg><span>发现</span></a><a data-view="settings" href="/settings" {{current-settings}}><svg class="icon"><use href="#icon-settings"/></svg><span>设置</span></a></nav>
+<nav class="tab-bar" aria-label="主导航"><a data-view="assets" href="/assets" {{current-assets}}><svg class="icon"><use href="#icon-assets"/></svg><span>资产</span></a><a data-view="investments" href="/investments" {{current-investments}}><svg class="icon"><use href="#icon-investments"/></svg><span>投资</span></a><a data-view="records" href="/records" {{current-records}}><svg class="icon"><use href="#icon-records"/></svg><span>记录</span></a><a data-view="discover" href="/discover" {{current-discover}}><svg class="icon"><use href="#icon-discover"/></svg><span>发现</span></a><a data-view="settings" href="/settings" {{current-settings}}><svg class="icon"><use href="#icon-settings"/></svg><span>设置</span></a></nav>
 
-<script src="/app.js" defer></script><script src="/charts.js" defer></script><script src="/portfolio.js" defer></script><script src="/pages/assets.js" defer></script><script src="/pages/records.js" defer></script><script src="/pages/discover.js" defer></script><script src="/pages/settings.js" defer></script></body></html>
+<script src="/app.js" defer></script><script src="/charts.js" defer></script><script src="/pages/assets.js" defer></script><script src="/pages/investments.js" defer></script><script src="/pages/records.js" defer></script><script src="/pages/discover.js" defer></script><script src="/pages/settings.js" defer></script></body></html>

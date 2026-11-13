@@ -13,7 +13,7 @@
 
 ---
 
-Accufolio is a single-user, self-hosted asset allocation dashboard. Give your agent completed transactions, dated fund balances, and allocation targets. The agent maintains those records through MCP; Accufolio turns them into holding breakdowns, target gaps, and historical curves.
+Accufolio is a single-user, self-hosted asset allocation dashboard. Named accounts describe where money is held and what it is for. Your agent maintains cash entries and securities transactions through MCP; balances, allocation, and returns are derived from those records.
 
 Asset and transaction data is read-only in Web, PWA, and Android, backed by your own SQLite database. Accufolio provides MCP tools and visualization. You choose and run the agent; the app does not include an AI model or a chat service.
 
@@ -24,8 +24,9 @@ Asset and transaction data is read-only in Web, PWA, and Android, backed by your
 <details>
 <summary>More views: allocation, strategy curves, monitoring, and mobile access</summary>
 <br>
-<img src="assets/previews/mobile-pages.jpg" alt="Four app routes" width="1000">
-<img src="assets/previews/mobile-allocation.png" alt="Total assets allocation and target gaps" width="280">
+<img src="assets/previews/mobile-pages.jpg" alt="Main mobile pages" width="1000">
+<img src="assets/previews/mobile-investments.png" alt="Investments overview" width="280">
+<img src="assets/previews/mobile-allocation.png" alt="Securities allocation and holdings" width="280">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/web-monitoring.png" alt="Price monitoring" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
@@ -35,95 +36,70 @@ Asset and transaction data is read-only in Web, PWA, and Android, backed by your
 
 The device frames are illustrative; the screenshots show the running application with synthetic transactions and prices in an isolated database. The mobile images show the responsive web interface; the Android client displays the same interface after connecting to a server; the welcome screen is captured on an Android 15 emulator.
 
-## Allocation at a glance
+## Assets and investments
 
-- **Agent-maintained assets:** update buys, sells, other funds, and targets through MCP. Trade creation, editing, deletion, and allocation replacement support previews, explicit write permissions, audit history, and retry protection.
-- **Current distribution:** aggregate market value, cost, realized and unrealized gains, net investment, and XIRR. Explore holdings by market value, remaining cost, or share count.
-- **Target comparison:** maintain separate targets for the investment portfolio and total assets. See current market-value weights and monetary gaps.
-- **Long-term perspective:** switch periods on holdings-value, net-investment, and cumulative-profit curves. Touch and keyboard controls expose individual dates; missing observations remain gaps.
-- **Strategy comparisons:** fetch cached daily prices and compare four contribution strategies against a cumulative-investment baseline, with expandable ending results.
-- **Ongoing monitoring:** L1/L2/L3 movement alerts, a calm signal based on stock and VIX closes, and optional Webhook delivery with retries.
+| Page | Purpose |
+|---|---|
+| **Assets** | Default home: net assets, named accounts, cash balances, and account allocation. Open an account to inspect its journal. |
+| **Investments** | Securities holdings, realized and unrealized gains, historical curves, and separate allocation/performance details. |
+| **Records** | Completed securities trades with account, currency, fees, and strategy. |
+| **Discover** | Four contribution strategies, movement alerts, calm signals, and optional Webhooks. |
+| **Settings** | Display currency, timezone, login, backups, connection, and updates. |
+
+Cash balances sum journal entries; securities are calculated per account and symbol before aggregation. Targets store weights only. Choose USD, CNY, HKD, or EUR: current values use the latest reference rate, while historical points use rates published by that date. Missing quotes or exchange rates remain unavailable.
 
 ## How it works
 
-```text
-Your transactions, balances, and targets
-                 │
-                 ▼
-       Your agent / MCP client
-                 │ Local stdio · permission-controlled access
-                 ▼
-          Accufolio MCP ──→ SQLite database
-                                  │
-     Quotes & daily prices ──→ FastAPI analytics + Web
-                                  │ HTTPS
-                                  ▼
-                         Web · PWA · Android
-                     Read-only assets and records
-```
+Your agent reads accounts and records, previews completed operations, and commits through local MCP to the same SQLite database used by the Web service. Web, PWA, and Android provide read-only asset views. Accufolio does not include an AI model or chat service.
 
-The agent reads existing records and configuration before preparing changes. Trade creation, editing, deletion, and allocation replacement default to `dry_run=true`. Submitting these operations requires `ACCUFOLIO_MCP_SCOPE=write` on the MCP process and `dry_run=false`. Allocation updates also check the current revision to avoid overwriting a newer change.
+Account, cash, trade, target, and shared-setting writes default to a preview. Committing requires `ACCUFOLIO_MCP_SCOPE=write` and `dry_run=false`, with revision checks, idempotency keys, and audit records where applicable.
 
-Once MCP is connected, you can give your agent completed transactions, balance reports, and targets like these:
+> Read my accounts and preview this salary deposit, preserving its original currency and date.
 
-> Record a completed trade: I bought 2 shares of QQQM on 2026-11-12 at 280 USD per share. Show me a preview before committing.
+> Prepare this completed US stock purchase: confirm its brokerage account, amount, fee, and strategy, then reconcile the trade and actual cash movement separately.
 
-> My other-funds balance was 5,000 USD as of 2026-11-14. Read the current allocation plan, preserve both target sets and its note, and preview a replacement of only the balance and date.
+**Trades do not automatically settle cash.** Record actual cash movements separately; never infer opening balances from trades. Dedicated transfer tools record both account or FX legs atomically. MCP requires local access to the same database; there is no remote MCP endpoint. See the [MCP guide](guides/使用与部署.md#mcp-接入).
 
-> Preview these targets: QQQM 60% and SPY 40% for my investment portfolio; QQQM 45%, SPY 30%, and other funds 25% for total assets. Preserve the reported balance, date, and note, then wait for confirmation before committing.
+## Calculation basis
 
-Balances come from information you provide and must be explicitly updated by the agent. Buys and sells never automatically change other funds; salary, spending, and transfers require a fresh balance report. MCP currently runs over **local stdio with access to the same database**, not a remote MCP endpoint. The phone connects to the Web service. See the [MCP setup guide](guides/使用与部署.md#mcp-接入) for configuration (Chinese).
+Net assets combine securities values and account cash balances in one currency; liabilities are not modeled. Moving-average securities cost includes transaction fees. XIRR explicitly measures USD securities trade cash flows; account interest and cash dividends are not automatically included.
 
-## Views and calculations
-
-| View | Data and purpose |
-|---|---|
-| **Investment portfolio** | Current stock holdings, weighted by market value, remaining cost, or share count. Share weights compare quantities, not capital allocation. |
-| **Total assets** | Current stock market value plus an independently reported USD other-funds balance, with its as-of date. An unreported balance is unknown, not zero. |
-| **Allocation targets** | Separate targets for the portfolio and total assets. Gaps use market value only; they do not create or execute orders. |
-| **History** | Stock holdings reconstructed from transactions and unadjusted closing prices. Missing values remain gaps; today's other-funds balance is not inserted into history. This is not account NAV. |
-
-Net investment equals cumulative purchases minus sale proceeds. Cumulative profit equals holdings value minus net investment. XIRR uses buys, sells, and terminal holdings value; short samples and cash flows without a unique supported solution show an explicit reason. See the [calculation and allocation guide](guides/使用与部署.md#看板与资产配置) for details (Chinese).
+Latest quotes and historical closes show separate timestamps. History uses same-day unadjusted closes from completed US Eastern trading sessions, retaining gaps. It is not complete account NAV. ECB historical rates are stored by date and never replaced by today's rate when converting the past. See the [data model and calculations](guides/schema-v2.md).
 
 ## Quick start
 
-Deploy the dashboard, then connect an agent that can access the same database. Start the service with [Docker and Docker Compose](https://docs.docker.com/get-docker/):
+Use Docker Compose, or Python 3.11–3.13. For a new deployment:
 
 ```bash
 git clone https://github.com/zuquanzhi/Accufolio.git
 cd Accufolio
 cp .env.example .env
-# Edit .env and set a strong, unique ACCUFOLIO_PASSWORD
+# Set a strong, unique ACCUFOLIO_PASSWORD in .env
 docker compose up -d --build
 ```
 
-Visit <http://127.0.0.1:8000> and sign in with username `admin` and the password you set. There is no default password or seeded portfolio. The container binds to localhost by default and stores the database in a Docker volume.
+Visit <http://127.0.0.1:8000> and sign in as `admin` with your password. The container binds to localhost. A new database receives the final schema and one empty USD brokerage account, without sample balances, trades, or exchange rates.
 
-Next, follow the [MCP setup guide](guides/使用与部署.md#mcp-接入) to launch `scripts/mcp_server.py` from your MCP client. Its `ACCUFOLIO_DB` must point to the same database used by the Web service. Docker deployments need an accessible shared database path for the local MCP process; pointing it at another empty database will not connect it to your dashboard. Start with read-only tools and enable write scope when you are ready to submit asset data.
+Configure your agent using the [MCP guide](guides/使用与部署.md#mcp-接入). Its `ACCUFOLIO_DB` must point to the Web service's database. Start with `list_accounts`, `get_assets`, and `get_dashboard`, then preview data changes.
 
-Ask the agent to read `get_dashboard` and `get_allocation_plan`, then preview your first records using the information you provide. Web and mobile will read the updated dashboard. Python 3.11–3.13 deployment, HTTPS, backups, and upgrades are covered in the [usage guide](guides/使用与部署.md).
+**2.0 uses a new account and cash-journal model.** [sql/schema.sql](sql/schema.sql) defines the final schema. Existing databases must be backed up and adapted by the operator; the app does not infer, migrate, or rewrite legacy records. Incompatible databases are rejected. See the [deployment guide](guides/使用与部署.md).
 
-## Mobile access
+## Mobile and updates
 
-Assets, Records, Discover, and Settings switch instantly while preserving scroll position and analysis parameters. Asset and transaction records are read-only. Connection, refresh, and update controls live in Settings.
+| Option | Getting started |
+|---|---|
+| **Android 10+** | Download the `.apk` from the [latest release](https://github.com/zuquanzhi/Accufolio/releases/latest), install it, and enter your HTTPS server address. |
+| **PWA** | Open your HTTPS site on Android or iOS and install it or add it to the home screen. |
 
+Both require a server; the APK does not include the backend. Web changes are detected after server updates, protecting unsaved input. Native updates can be downloaded and verified in-app before Android requests installation confirmation. The source ZIP is not a mobile installer.
 
-| Option | Requirements | Getting started |
-|---|---|---|
-| **Android APK** | Android 10 or later | Download the `.apk` from the [latest release](https://github.com/zuquanzhi/Accufolio/releases/latest), install it, and enter your server's HTTPS origin. |
-| **PWA** | Android or iOS browser | Open your HTTPS site and use the browser's install or add-to-home-screen action. |
+Remembered login lasts up to 90 days using a revocable token, never a stored password. Signing out revokes that session; changing the server password invalidates existing sessions. Remote access requires HTTPS. Set `ACCUFOLIO_PUBLIC_ORIGIN` for an existing reverse proxy; the included Caddy configuration sets it automatically.
 
-Both options require a deployed server; the APK does not include the backend. After the server is updated, web changes are detected and loaded automatically, with a prompt when there is unsaved input. From v1.2.0, the Android app can check, download and verify updates in-app, then request system installation confirmation. Upgrading from an older version requires installing the new APK once. The release source ZIP is for deployment and development, not an Android installer. SHA-256 checksum files are provided with release assets.
+## Data and scope
 
-## Your data, your storage
+SQLite online backups and JSON data exports support data ownership. Automatic daily backups retain 30 copies by default. Worker heartbeat, failures, and delivery status are visible; retention protects undelivered notifications. MCP database permissions belong to its local process.
 
-The server provides daily and manual SQLite backups and JSON trade exports. The Web service uses HTTP Basic authentication and requires HTTPS for remote access. MCP inherits database access from the local process running it; the Web password does not replace operating-system permissions.
-
-Older on-device records remain on their original device and browser origin, available for viewing and export only. They are not uploaded, merged into the investment portfolio, or included in server backups. Export them before clearing browser data or uninstalling the app. The server is still required to load the interface; independent offline startup is not supported.
-
-## Scope and limitations
-
-The current release focuses on single-user asset allocation in USD. It does not connect to a broker or place orders. Dividends, fees, multiple currencies, and broker sync are not supported. Other funds are a reported balance snapshot, not a complete cash ledger. Sina daily closes are unadjusted: splits can distort historical curves and backtests, and dividends are not reinvested. Stale data is visibly flagged. Webhooks use generic JSON and require a compatible receiver or adapter; configuration is covered in the [guide](guides/使用与部署.md#webhook-告警). Quotes may be delayed or unavailable; historical results do not guarantee future returns. Planned work and exclusions are tracked in the [roadmap](guides/roadmap.md).
+Current support covers USD US-stock trades, original-currency cash accounts, and four display currencies. Unsupported FX conversions remain unavailable. Cash entries can record interest, dividends, and fees; securities XIRR does not yet include cash dividends. Unadjusted history may be affected by splits. Broker execution, multiple users, remote MCP, and market-data redistribution are outside the current scope. Offline startup, complete account NAV, and liabilities are not implemented. See the [roadmap](guides/roadmap.md).
 
 ## Development
 
@@ -135,7 +111,7 @@ pip install -r requirements.txt
 python -m unittest discover -s tests -v
 ```
 
-CI covers Python tests, browser flows, Docker startup, and Android checks. The release workflow produces a signed APK, a source archive, and checksum files after verification. See the [guide](guides/使用与部署.md) for browser and Android testing. Bug reports and suggestions are welcome via [Issues](https://github.com/zuquanzhi/Accufolio/issues).
+CI is configured for Python, browser flows, Docker, and Android checks. Verified releases include a signed APK, source archive, and SHA-256 checksums. See [Actions](https://github.com/zuquanzhi/Accufolio/actions) for each commit's result, and [Issues](https://github.com/zuquanzhi/Accufolio/issues) for reports and suggestions.
 
 ## License
 

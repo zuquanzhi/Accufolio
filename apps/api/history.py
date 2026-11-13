@@ -10,8 +10,9 @@ import threading
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from apps.api.auth import authorize as _authorize
 from packages.providers.history import normalize_symbol, sina_daily, validate_bars
+from packages.core.market_time import et_today, market_clock
 
 router = APIRouter()
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,13 +21,6 @@ RETRY_SECONDS = 5 * 60
 MAX_RANGE_DAYS = 30 * 366
 _LOCKS = [threading.Lock() for _ in range(32)]
 ADJUSTMENT_NOTE = '未复权收盘价；不包含分红再投资，拆股区间可能使回测失真。'
-
-
-def _authorize(credentials: HTTPBasicCredentials = Depends(HTTPBasic())):
-    # Import at request time so monitors can import get_history without loading
-    # the HTTP application (and the application's router imports) recursively.
-    from apps.api.main import authorize
-    return authorize(credentials)
 
 
 class HistoryUnavailable(Exception):
@@ -69,7 +63,18 @@ def _read(symbol):
 
 
 def _available(cached, now):
-    return bool(cached and cached['bars'] and 0 <= now - cached['fetched_at'] < TTL_SECONDS)
+    if not cached or not cached['bars'] or not 0 <= now-cached['fetched_at'] < TTL_SECONDS:
+        return False
+    completed = _closed_at(now)
+    if _closed_at(cached['fetched_at']) < completed:
+        return False  # A new close invalidates any pre-close cached daily row.
+    if cached['bars'][-1]['day'] < completed:
+        return now-cached['fetched_at'] < RETRY_SECONDS  # Publication may lag the close.
+    return True
+
+
+def _closed_at(timestamp):
+    return market_clock(datetime.fromtimestamp(timestamp, timezone.utc))['last_completed_session']
 
 
 def _all_history(symbol):
@@ -99,7 +104,9 @@ def _all_history(symbol):
             if cached and cached['bars']:
                 return cached['bars'], cached['fetched_at'], True, True, [message]
             raise HistoryUnavailable(message) from exc
-        fetched_at = time.time()
+        # Eligibility is fixed at request start: a pre-close fetch must not turn
+        # its forming daily candle into a final close just because time passed.
+        fetched_at = now
         with _cache_db() as connection:
             connection.execute('''INSERT INTO daily_history_cache(symbol,payload,fetched_at) VALUES(?,?,?)
                 ON CONFLICT(symbol) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,
@@ -109,14 +116,14 @@ def _all_history(symbol):
 
 def _range(start, end):
     end = date.fromisoformat(end) if isinstance(end, str) else end
-    end = end or date.today()
+    end = end or et_today()
     start = date.fromisoformat(start) if isinstance(start, str) else start
     start = start or end - timedelta(days=365)
     if not isinstance(start, date) or not isinstance(end, date):
         raise ValueError('日期格式应为 YYYY-MM-DD')
     if start > end:
         raise ValueError('开始日期不能晚于结束日期')
-    if start.year < 1900 or end > date.today() + timedelta(days=1):
+    if start.year < 1900 or end > et_today() + timedelta(days=1):
         raise ValueError('请选择有效的历史日期范围')
     if (end - start).days > MAX_RANGE_DAYS:
         raise ValueError('单次历史范围最长为 30 年')
@@ -132,23 +139,31 @@ def get_history(symbol: str, start=None, end=None) -> dict:
     symbol = normalize_symbol(symbol)
     start, end = _range(start, end)
     all_bars, fetched_at, cached, stale, errors = _all_history(symbol)
-    bars = [bar for bar in all_bars if start.isoformat() <= bar['day'] <= end.isoformat()]
+    completed = _closed_at(time.time())
+    eligible = min(completed, _closed_at(fetched_at))
+    available = [bar for bar in all_bars if bar['day'] <= eligible]
+    cutoff = min(end.isoformat(), eligible)
+    bars = [bar for bar in available if start.isoformat() <= bar['day'] <= cutoff]
     warnings = [ADJUSTMENT_NOTE]
     if not bars:
         errors = errors + ['所选时间范围没有日线数据，请调整日期或标的。']
-    latest = date.fromisoformat(all_bars[-1]['day'])
-    if latest < min(end, date.today()) - timedelta(days=7):
+    latest = date.fromisoformat(available[-1]['day']) if available else None
+    if latest is None or latest < min(end, date.fromisoformat(completed)) - timedelta(days=7):
         stale = True
-        warnings.append(f'数据源最新可用日期为 {latest.isoformat()}，可能已停止更新。')
+        warnings.append(f'数据源最新可用日期为 {latest.isoformat() if latest else "未知"}，可能已停止更新。')
+    if latest and latest.isoformat() < min(end.isoformat(), completed):
+        warnings.append(f'最近已收盘交易日为 {completed}；数据源收盘价仅到 {latest.isoformat()}。')
     jumps = [bar['day'] for previous, bar in zip(bars, bars[1:]) if not .55 < bar['close'] / previous['close'] < 1.8]
     if jumps:
         warnings.append('发现较大单日价格跳变，可能涉及拆股或其他公司行动；请核对：' + ', '.join(jumps[:5]))
     return {
         'symbol': symbol, 'start': start.isoformat(), 'end': end.isoformat(), 'bars': bars,
+        'timezone': 'America/New_York', 'last_completed_session': completed,
         'source': 'sina', 'cached': cached, 'stale': stale,
         'adjustment': 'unadjusted', 'adjustment_note': ADJUSTMENT_NOTE,
         'fetched_at': datetime.fromtimestamp(fetched_at, timezone.utc).isoformat(),
-        'available_start': all_bars[0]['day'], 'available_end': all_bars[-1]['day'],
+        'available_start': available[0]['day'] if available else None,
+        'available_end': available[-1]['day'] if available else None,
         'errors': errors, 'warnings': warnings,
     }
 

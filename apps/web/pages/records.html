@@ -1,14 +1,7 @@
 <section id="view-records" class="app-view" aria-labelledby="records-title">
-  <div class="page-heading"><div><p class="eyebrow">YOUR ACTIVITY</p><h1 id="records-title" tabindex="-1">记录</h1></div><button type="button" class="text-button" id="export-local-records" hidden>导出设备记录</button></div>
+  <div class="page-heading"><div><p class="eyebrow">YOUR ACTIVITY</p><h1 id="records-title" tabindex="-1">记录</h1></div></div>
   <p class="section-description" id="record-description">投资中的每一步，都值得记录。</p>
   <p class="ledger-hint" id="server-hint">这里展示 Agent 为你整理的投资记录，只供查看。</p>
+  <p id="records-currency-note" class="field-hint"></p>
   <section class="panel history-panel" id="history"><div id="trades" class="trades"><p class="empty">正在读取记录…</p></div></section>
 </section>
-<dialog id="local-export" class="trade-sheet" aria-labelledby="local-export-title">
-  <div class="sheet-handle" aria-hidden="true"></div>
-  <div class="sheet-heading"><h2 id="local-export-title">导出设备记录</h2><button type="button" id="close-local-export" class="icon-button" aria-label="关闭导出预览">×</button></div>
-  <p class="sheet-description" id="local-export-description">以下 JSON 在此设备生成，不会上传。可下载文件或复制保存。</p>
-  <label class="full-width">JSON 副本<textarea id="local-export-json" rows="10" readonly spellcheck="false" aria-label="只读的设备记录 JSON"></textarea></label>
-  <p id="local-export-status" class="field-hint" role="status" aria-live="polite"></p>
-  <div class="sheet-heading"><button type="button" id="copy-local-export" class="primary">复制 JSON</button><button type="button" id="download-local-export">下载 JSON</button></div>
-</dialog>

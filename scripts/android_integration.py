@@ -45,12 +45,18 @@ def serve():
     import apps.api.main as api
     import apps.api.extended as monitoring
     import apps.api.dashboard as dashboard
-    from apps.api.allocation import AllocationPlan, save_plan
+    from apps.api.allocation import save_targets
+    from apps.api.accounts import Account, CashEntry, save_account, add_cash_entry
+    import apps.api.fx as fx
+    import packages.providers as providers
     from packages.providers import Quote, QuoteResult
-    quote = lambda symbol: QuoteResult(Quote(symbol, 225.6 if symbol == 'AAPL' else 204.75, .84, 'test', 0), False, ())
+    quote = lambda symbol: QuoteResult(Quote(symbol, 225.6 if symbol == 'AAPL' else 204.75, .84, 'test', time.time()), False, ())
     api.get_quote = quote
     monitoring.get_quote = quote
     dashboard.get_quote = quote
+    providers.get_quote = quote
+    fx.get_fx=lambda:{'base':'USD','rates':{'USD':1,'CNY':7.2,'HKD':7.8,'EUR':.8},'as_of':date.today().isoformat(),'source':'fixture','available':True,'cached':True,'stale':False,'errors':[]}
+    fx.get_historical_fx=lambda days,base='USD',**kw:{'base':base,'points':[{'day':str(day),'rates':{'USD':1,'CNY':7.2,'HKD':7.8,'EUR':.8},'rate_dates':{c:str(day) for c in ['USD','CNY','HKD','EUR']},'source':'fixture'} for day in days],'cached':True,'stale':False,'errors':[]}
     def history(symbol, start, end):
         count=(end-start).days
         return {'bars':[{'day':(start+timedelta(days=i)).isoformat(),
@@ -59,14 +65,15 @@ def serve():
     dashboard.get_history = history
     api.mutate_trade('add', api.Trade(symbol='QQQM', trade_date=date(2025, 1, 2), shares=2, price=180), None, 'integration')
     api.mutate_trade('add', api.Trade(symbol='AAPL', trade_date=date(2025, 2, 3), shares=3, price=190), None, 'integration')
-    save_plan(AllocationPlan(reserve_amount=913.7,reserve_as_of=date.today(),
-                            investment_targets={'QQQM':40,'AAPL':60},
-                            total_targets={'QQQM':25,'AAPL':35,'__RESERVE__':40}),0,'integration-plan','integration')
+    account=save_account(Account(name='Savings',kind='bank',purpose='savings',currency='USD'),None,0,'integration-account',dry_run=False,actor='integration')
+    add_cash_entry(CashEntry(account_id=account['id'],entry_date=date.today(),kind='balance_open',amount=913.7,currency='USD'),0,'integration-opening',dry_run=False,actor='integration')
+    save_targets('securities',{'QQQM':40,'AAPL':60},0,'integration-securities',dry_run=False,actor='integration')
+    save_targets('net_worth',{'account:1':60,'account:'+str(account['id']):40},1,'integration-accounts',dry_run=False,actor='integration')
 
     @api.app.middleware('http')
     async def log_navigation(request, call_next):
         response = await call_next(request)
-        if request.url.path in ('/assets', '/records', '/discover', '/settings') and response.status_code == 200:
+        if request.url.path in ('/assets', '/investments', '/records', '/discover', '/settings') and response.status_code == 200:
             with NAV.open('a', encoding='utf-8') as stream:
                 stream.write(json.dumps({'path':request.url.path,'destination':request.headers.get('sec-fetch-dest','')}) + '\n')
         return response
@@ -138,7 +145,7 @@ def wait_ui(predicate, description, reject_login=False, timeout=50):
     while time.monotonic()<deadline:
         try:
             ui=screen();last=items(ui)
-            if reject_login and any(item.startswith('登录 ') for item in last):
+            if reject_login and any(item.startswith('登录 ') or item == '欢迎回来' for item in last):
                 raise AssertionError(('Unexpected repeat authentication',last))
             if predicate(ui):return ui
         except RuntimeError:
@@ -148,10 +155,10 @@ def wait_ui(predicate, description, reject_login=False, timeout=50):
 
 
 def wait_page(route):
-    distinctive={'/assets':'持仓市值','/records':'投资中的每一步','/discover':'策略实验室','/settings':'记录方式'}[route]
+    distinctive={'/assets':'净资产','/investments':'持仓市值','/records':'投资中的每一步','/discover':'策略实验室','/settings':'展示币种'}[route]
     def ready(ui):
         values=items(ui)
-        return all(label in values for label in ['资产','记录','发现','设置']) and any(distinctive in item for item in values)
+        return all(label in values for label in ['资产','投资','记录','发现','设置']) and any(distinctive in item for item in values)
     ui=wait_ui(ready,route,reject_login=True)
     for unexpected in ['应用设置','正在连接…','修改连接','重试']:
         assert unexpected not in items(ui),('Unexpected native footer',unexpected,items(ui))
@@ -210,16 +217,17 @@ def run(apk):
             tap(password);adb('shell', 'input', 'text', 'android-integration-test')
             adb('shell','input','keyevent','4')
             tap(named(screen(), '登录'))
-            # The initial dialog may take a frame to dismiss; then any further prompt is a regression.
-            wait_ui(lambda tree:not any(item.startswith('登录 ') for item in items(tree)),'login dismissal')
+            wait_ui(lambda tree:'欢迎回来' not in items(tree) and not any(item.startswith('登录 ') for item in items(tree)),'login dismissal')
             ui = wait_page('/assets')
             initial_documents=document_requests()
             assert initial_documents==['/assets'],initial_documents
+            ui=wait_ui(lambda tree:any('$2,000.00' in item for item in items(tree)), 'net assets valuation',reject_login=True)
             capture('android-assets.png')
-            tap(named(ui,'全部资产'))
-            ui=wait_ui(lambda tree:any('$2,000.00' in item for item in items(tree)), 'total assets valuation',reject_login=True)
-            assert any('总资产估值' in item for item in items(ui)),items(ui)
-            tap(named(ui,'投资组合'));ui=wait_page('/assets')
+            assert any('净资产' in item for item in items(ui)),items(ui)
+            tap(named(ui,'投资'));ui=wait_page('/investments')
+            ui=wait_ui(lambda tree:any('$1,086.30' in item for item in items(tree)), 'securities-only valuation',reject_login=True)
+            assert document_requests()==initial_documents,('Investments reloaded document',document_requests())
+            capture('android-investments.png')
             for label, route in [('记录','/records'),('发现','/discover'),('设置','/settings')]:
                 tap(named(ui,label));ui=wait_page(route)
                 assert document_requests()==initial_documents,('Tab reloaded the document',route,document_requests())
@@ -238,7 +246,19 @@ def run(apk):
             tap(named(screen(),'资产'));wait_page('/assets')
             adb('shell','input','keyevent','4');wait_page('/settings')
             assert document_requests()==initial_documents,('History reloaded the document',document_requests())
-            print('Android real HTTPS navigation passed: four screens, one document, one login, no duplicate bar, direct connection/reload actions.')
+            # A real process death discards all in-memory passwords and WebViews.
+            # Restart must use the persisted HttpOnly session cookie without a prompt.
+            adb('shell','input','keyevent','3')
+            time.sleep(1)
+            adb('shell','am','force-stop','io.accufolio.app')
+            adb('shell','am','start','-W','-n','io.accufolio.app/.MainActivity')
+            ui=wait_page('/assets')
+            assert document_requests()==initial_documents+['/assets'],document_requests()
+            capture('android-reopened.png')
+            tap(named(ui,'设置'));wait_page('/settings')
+            tap(scroll_to('退出登录'))
+            wait_ui(lambda tree:'欢迎回来' in items(tree),'explicit logout returns to login')
+            print('Android real HTTPS navigation passed: five screens, separate net-assets and investments, one document, persistent login after force-stop/reopen, explicit logout, direct connection/reload actions.')
         except BaseException:
             try:
                 capture('android-integration-failure.png')

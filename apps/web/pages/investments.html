@@ -1,0 +1,31 @@
+<section id="view-investments" class="app-view dashboard" aria-labelledby="investments-title">
+  <button type="button" id="asset-detail-back" class="detail-back" hidden>‹ 返回总览</button>
+  <div class="page-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h1 id="investments-title" tabindex="-1">投资</h1></div></div>
+  <div id="investments-overview">
+    <section class="wealth-card dashboard-hero" aria-label="资产概览">
+      <div class="wealth-top"><span id="valuation-label">持仓市值（最近行情）· USD</span><span class="subtle" id="holding-count">—</span></div>
+      <strong id="value" class="wealth-value">—</strong><p id="valuation-note" class="valuation-note">整个组合，一眼看清。</p><p id="quote-as-of" class="valuation-note"></p>
+      <div class="wealth-metrics"><div><span>未实现盈亏</span><strong id="pnl">—</strong><small>当前持仓浮动盈亏</small></div><div><span>已实现盈亏</span><strong id="summary-realized">—</strong><small>已卖出部分</small></div></div>
+    <div class="overview-links"><a href="/investments?detail=allocation" data-asset-detail="allocation" class="overview-link"><div><span>配置与持仓</span><strong id="allocation-summary">查看资产分配</strong><small id="allocation-summary-note">市值权重、目标差额与持仓明细</small></div><svg class="icon"><use href="#icon-arrow"/></svg></a><a href="/investments?detail=performance" data-asset-detail="performance" class="overview-link"><div><span>投入与收益</span><strong id="performance-summary">查看投资分析</strong><small>美元 XIRR、投入节奏与计算说明</small></div><svg class="icon"><use href="#icon-arrow"/></svg></a></div>
+      <div class="trajectory-head"><h2>投资轨迹 <small id="history-currency"></small></h2><div class="range-control" aria-label="走势图时间范围"><button type="button" data-period="1m">1月</button><button type="button" data-period="3m">3月</button><button type="button" data-period="1y" aria-pressed="true">1年</button><button type="button" data-period="all">全部</button></div></div>
+      <div class="chart-mode" aria-label="走势图指标"><button type="button" data-curve="value" aria-pressed="true">市值与投入</button><button type="button" data-curve="pnl" aria-pressed="false">累计盈亏</button></div>
+      <div id="portfolio-chart"><p class="empty">正在读取投资轨迹…</p></div><p id="history-coverage" class="field-hint"></p>
+    </section>
+
+    <p class="page-footnote" id="overview-note">由 Agent 更新数据，你只需看清全局。</p>
+  </div>
+  <div id="investments-allocation" hidden><div class="allocation-detail-layout">
+    <section class="panel allocation-panel" aria-label="资产配置">
+      <div class="section-head"><h2>资产分配</h2><span class="subtle" id="allocation-total">—</span></div>
+      <div class="allocation-basis range-control" aria-label="占比计算依据"><button type="button" data-basis="value" aria-pressed="true">市值</button><button type="button" data-basis="cost">成本</button><button type="button" data-basis="shares">股数</button></div>
+      <div id="allocation-ring" class="allocation-ring"></div><p id="allocation-explanation" class="field-hint"></p><div id="allocation-legend" class="allocation-legend"></div>
+      <details class="allocation-method"><summary>投资目标的来源</summary><p id="allocation-source" class="field-hint"></p><p class="field-hint">投资目标由 Agent 通过 MCP 更新；资金差额按当前股票组合市值计算。</p></details>
+    </section>
+  <section class="panel holdings-panel"><div class="section-head"><div><h2>全部持仓</h2><p>金额、数量与配置权重。展开查看明细。</p></div><span class="subtle"><span id="shares">—</span> 股</span></div><div id="holdings-list"><p class="empty">正在读取持仓…</p></div></section>
+  </div></div>
+  <div id="investments-performance" hidden>
+  <div id="dashboard-facts" class="dashboard-facts" aria-label="组合计算指标"><div><span>当前持仓成本</span><strong id="cost">—</strong><small id="cost-method"></small></div><div><span>累计买入</span><strong id="buy-total">—</strong></div><div><span>卖出回收</span><strong id="sell-total">—</strong></div><div><span>已实现收益</span><strong id="realized">—</strong></div><div><span>XIRR（美元口径）</span><strong id="xirr">—</strong><small id="xirr-note"></small></div></div>
+  <div class="dashboard-bottom"><section class="panel"><div class="section-head"><div><h2>投入节奏</h2><p>最近六个有记录的月份 · 买入 / 卖出</p></div></div><div id="contribution-bars"></div></section><section class="panel"><div class="section-head"><h2>最近记录</h2><a class="text-button" href="/records">查看全部 <svg class="icon"><use href="#icon-arrow"/></svg></a></div><div id="recent-trades"></div></section></div>
+  <details class="dashboard-method"><summary>数据口径与完整性</summary><p id="dashboard-currency-note" class="field-hint"></p><p id="dashboard-method" class="field-hint"></p><div id="dashboard-warnings"></div></details>
+  </div>
+</section>

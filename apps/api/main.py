@@ -1,6 +1,5 @@
 """Accufolio single-user HTTP API."""
 import hashlib
-import hmac
 import os
 import sqlite3
 from contextlib import contextmanager, asynccontextmanager
@@ -10,60 +9,50 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from apps.api.auth import authorize, router as auth_router
 from pydantic import BaseModel, Field
 from packages.core.portfolio import summarize_trades
 from packages.core.metrics import xirr, twr, max_drawdown
 from packages.core.backtest import run as run_backtest
 from packages.providers import get_quote
+from packages.core.market_time import et_today
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / 'apps' / 'web'
-security = HTTPBasic()
 @asynccontextmanager
 async def lifespan(app):
     import threading
-    import logging
-    from apps.api.extended import scan_all, backup
+    from apps.api.maintenance import run_worker
+    # Fail at startup if the deployed database has not been adapted to v2.
+    with db():
+        pass
     stop = threading.Event()
     interval = max(60, int(os.environ.get('ACCUFOLIO_SCAN_INTERVAL', '300')))
-    def worker():
-        last_backup = None
-        while not stop.is_set():
-            try:
-                today = date.today().isoformat()
-                if last_backup != today:
-                    base = Path(os.environ.get('ACCUFOLIO_DB', str(ROOT/'data'/'accufolio.db'))).parent
-                    backup(base/'backups'/f'accufolio-{today}.db')
-                    last_backup = today
-                scan_all()
-            except Exception:
-                logging.exception('Accufolio background scan failed')
-            stop.wait(interval)
-    thread = threading.Thread(target=worker, daemon=True)
+    thread = threading.Thread(target=run_worker, args=(stop, interval), daemon=True, name='accufolio-maintenance')
     thread.start()
     yield
     stop.set()
+    # Do not hold shutdown indefinitely for provider I/O; heartbeat state still
+    # distinguishes an interrupted scan from a completed cycle.
+    thread.join(timeout=1)
 
-app = FastAPI(title='Accufolio', version='1.5.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='2.0.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
     response = await call_next(request)
+    if (response.status_code == 401 and request.method == 'GET'
+            and request.url.path in {'/', '/assets', '/investments', '/records', '/discover', '/settings'}
+            and 'text/html' in request.headers.get('accept', '')):
+        next_page = request.url.path if request.url.path != '/' else '/assets'
+        response = RedirectResponse('/login?next=' + next_page, status_code=303)
     if request.url.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
+    if response.status_code in {303, 401}:
         response.headers['Cache-Control'] = 'no-store'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     return response
-
-def authorize(credentials: Annotated[HTTPBasicCredentials, Depends(security)]):
-    username = os.environ.get('ACCUFOLIO_USER', 'admin')
-    password = os.environ.get('ACCUFOLIO_PASSWORD', '')
-    if not password:
-        raise HTTPException(503, 'Set ACCUFOLIO_PASSWORD before starting Accufolio')
-    if not (hmac.compare_digest(credentials.username.encode(), username.encode()) and hmac.compare_digest(credentials.password.encode(), password.encode())):
-        raise HTTPException(401, 'Invalid credentials', headers={'WWW-Authenticate': 'Basic'})
-    return credentials.username
 
 def csrf(x_accufolio: Annotated[str | None, Header()] = None):
     if x_accufolio != '1':
@@ -77,18 +66,10 @@ def db():
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA busy_timeout=10000')
     try:
-        conn.executescript('''CREATE TABLE IF NOT EXISTS trades(id INTEGER PRIMARY KEY, symbol TEXT NOT NULL, trade_date TEXT NOT NULL, shares REAL NOT NULL, price REAL NOT NULL, note TEXT NOT NULL DEFAULT '');
-        CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, actor TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL);''')
-        columns = {row[1] for row in conn.execute('PRAGMA table_info(trades)')}
-        if 'deleted' not in columns:
-            conn.execute('ALTER TABLE trades ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
-        if 'side' not in columns:
-            conn.execute("ALTER TABLE trades ADD COLUMN side TEXT NOT NULL DEFAULT 'buy'")
-        conn.executescript('''CREATE TABLE IF NOT EXISTS requests(key TEXT PRIMARY KEY, payload TEXT NOT NULL, result TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS watchlist(symbol TEXT PRIMARY KEY, threshold REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS scans(id INTEGER PRIMARY KEY, ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, symbol TEXT NOT NULL, price REAL, change_percent REAL, error TEXT);
-        CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY, ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, symbol TEXT NOT NULL, message TEXT NOT NULL, dedupe TEXT UNIQUE);
-        CREATE TABLE IF NOT EXISTS reversals(audit_id INTEGER PRIMARY KEY);''')
+        conn.execute('PRAGMA foreign_keys=ON')
+        from packages.core.schema_v2 import initialize
+        initialize(conn)
+        conn.commit()
         yield conn
         conn.commit()
     except Exception:
@@ -98,6 +79,10 @@ def db():
         conn.close()
 
 class Trade(BaseModel):
+    account_id: int = Field(default=1, gt=0)
+    currency: Literal['USD'] = 'USD'
+    fee: float = Field(default=0, ge=0, allow_inf_nan=False)
+    strategy: Literal['dca', 'dip_add', 'rebalance', 'manual'] = 'manual'
     symbol: str = Field(min_length=1, max_length=15, pattern=r'^[A-Za-z0-9.\-]+$')
     trade_date: date
     shares: float = Field(gt=0, allow_inf_nan=False)
@@ -113,12 +98,14 @@ def version(actor: str = Depends(authorize)):
     for path in paths:
         digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '1.5.0'}
+    return {'version': digest.hexdigest(), 'release': '2.0.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
     with db() as con:
-        return [dict(row) for row in con.execute('SELECT * FROM trades WHERE deleted=0 ORDER BY trade_date DESC, id DESC')]
+        return [dict(row) for row in con.execute('''SELECT t.*,a.name AS account_name
+            FROM trades t JOIN accounts a ON a.id=t.account_id
+            WHERE t.deleted=0 ORDER BY t.trade_date DESC,t.id DESC''')]
 
 @app.post('/api/trades', dependencies=[Depends(csrf)], status_code=201)
 def add_trade(trade: Trade, actor: str = Depends(authorize), idempotency_key: Annotated[str | None, Header()] = None):
@@ -128,7 +115,7 @@ def add_trade(trade: Trade, actor: str = Depends(authorize), idempotency_key: An
 def update_trade(trade_id: int, trade: Trade, actor: str = Depends(authorize), idempotency_key: Annotated[str | None, Header()] = None):
     return mutate_trade('update', trade, trade_id, actor, idempotency_key)
 
-def mutate_trade(action, trade, trade_id, actor, key=None):
+def mutate_trade(action, trade, trade_id, actor, key=None, dry_run=False):
     import json
     data = trade.model_dump(mode='json') if trade else None
     if data: data['symbol'] = data['symbol'].upper()
@@ -147,18 +134,33 @@ def mutate_trade(action, trade, trade_id, actor, key=None):
             if row is None: raise HTTPException(404, 'Trade not found')
             before = dict(row)
         if action == 'add':
+            validate_trade_account(con, data)
             # Never reuse an ID after deletion: old audits must keep identifying the same trade.
-            trade_id = con.execute('INSERT INTO trades(symbol,trade_date,shares,price,note,side) VALUES(?,?,?,?,?,?)', tuple(data[k] for k in ('symbol','trade_date','shares','price','note','side'))).lastrowid
+            trade_id = con.execute('INSERT INTO trades(symbol,trade_date,shares,price,note,side,account_id,currency,fee,strategy) VALUES(?,?,?,?,?,?,?,?,?,?)', tuple(data[k] for k in ('symbol','trade_date','shares','price','note','side','account_id','currency','fee','strategy'))).lastrowid
         elif action == 'update':
-            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,side=? WHERE id=?', tuple(data[k] for k in ('symbol','trade_date','shares','price','note','side')) + (trade_id,))
+            validate_trade_account(con, data)
+            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,side=?,account_id=?,currency=?,fee=?,strategy=? WHERE id=?', tuple(data[k] for k in ('symbol','trade_date','shares','price','note','side','account_id','currency','fee','strategy')) + (trade_id,))
         else:
             con.execute('UPDATE trades SET deleted=1 WHERE id=?', (trade_id,))
         validate_trade_history(con)
         after = dict(con.execute('SELECT * FROM trades WHERE id=?', (trade_id,)).fetchone())
+        if dry_run:
+            con.rollback()
+            return {'preview':{'action':action,'before':before,'after':after}}
         audit_id = con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)', (actor, action+'_trade', json.dumps({'id':trade_id, 'before':before, 'after':after}))).lastrowid
         result = {'id':trade_id, 'audit_id':audit_id, 'ok':True}
         if key: con.execute('INSERT INTO requests VALUES(?,?,?)', (key,payload,json.dumps(result)))
         return result
+
+
+def validate_trade_account(con, data):
+    account = con.execute('SELECT * FROM accounts WHERE id=?', (data['account_id'],)).fetchone()
+    if not account or account['archived'] or account['kind'] != 'broker':
+        raise HTTPException(422, 'Trades require an active broker account')
+    if account['currency'] != data['currency'] or data['currency'] != 'USD':
+        raise HTTPException(422, 'Current securities quotes and trades require a USD broker account')
+    if account['opened_on'] and data['trade_date'] < account['opened_on']:
+        raise HTTPException(422, 'Trade date cannot precede the account opening date')
 
 
 def validate_trade_history(con):
@@ -166,7 +168,7 @@ def validate_trade_history(con):
     rows = con.execute('SELECT * FROM trades WHERE deleted=0 ORDER BY symbol, trade_date, id').fetchall()
     grouped = {}
     for row in rows:
-        grouped.setdefault(row['symbol'], []).append(row)
+        grouped.setdefault((row['account_id'], row['currency'], row['symbol']), []).append(row)
     try:
         for history in grouped.values():
             summarize_trades(history, 0)
@@ -202,30 +204,29 @@ def delete_trade(trade_id: int, actor: str = Depends(authorize), idempotency_key
     return mutate_trade('delete', None, trade_id, actor, idempotency_key)
 
 @app.get('/api/summary')
-def summary(symbol: str = 'QQQM', actor: str = Depends(authorize)):
+def summary(symbol: str, actor: str = Depends(authorize)):
+    """One symbol, aggregated after calculating each account's own cost basis."""
+    from packages.core.dashboard import summarize_account
     symbol = symbol.upper()
+    today = et_today()
     with db() as con:
-        rows = con.execute('SELECT shares,price,trade_date,side FROM trades WHERE symbol=? AND deleted=0 ORDER BY trade_date,id', (symbol,)).fetchall()
+        rows = [dict(row) for row in con.execute('SELECT * FROM trades WHERE symbol=? AND deleted=0 AND trade_date<=? ORDER BY trade_date,id', (symbol,today.isoformat()))]
     quote = get_quote(symbol)
-    portfolio, realized = summarize_trades(rows, quote.quote.price if quote.quote else 0)
-    cost, shares = portfolio.cost, portfolio.shares
-    position = None if quote.quote is None else portfolio.__dict__
-    annualized = None
-    xirr_reason = '行情不可用' if position is None else '样本不足或没有持仓'
-    if position and rows:
-        flows = [(date.fromisoformat(row['trade_date']), (-1 if row['side'] == 'buy' else 1) * row['shares'] * row['price']) for row in rows]
-        if any(day > date.today() for day, _ in flows):
-            xirr_reason = '存在未来交易日期'
-        else:
-            try:
-                annualized = xirr(flows + [(date.today(), position['value'])])
-                if annualized is not None: xirr_reason = None
-            except ValueError:
-                xirr_reason = '无法在支持的范围内计算'
-    return {'symbol': symbol, 'shares': shares, 'cost': cost, 'average_price': cost/shares if shares else None,
-            'position': position, 'realized_pnl': realized, 'xirr': annualized, 'xirr_reason': xirr_reason, 'quote': quote.quote.__dict__ if quote.quote else None,
+    result = summarize_account(rows, {symbol:quote.quote.__dict__ if quote.quote else None}, today)
+    totals = result['summary']
+    shares = sum(h['shares'] for h in result['holdings'])
+    cost = totals['cost']
+    position = None if quote.quote is None else {
+        'shares':shares, 'cost':cost, 'average_price':cost/shares if shares else None,
+        'value':totals['value'], 'pnl':totals['unrealized_pnl'],
+        'return_rate':totals['unrealized_pnl']/cost if cost else None}
+    return {'scope':'single_symbol', 'currency':'USD', 'as_of':today.isoformat(), 'timezone':'America/New_York',
+            'symbol': symbol, 'shares': shares, 'cost': cost, 'average_price': cost/shares if shares else None,
+            'position': position, 'realized_pnl': totals['realized_pnl'], 'fees':totals['fees'],
+            'xirr': totals['xirr'], 'xirr_reason':totals['xirr_reason'], 'quote': quote.quote.__dict__ if quote.quote else None,
             'degraded': quote.degraded, 'errors': quote.errors}
 
+app.include_router(auth_router)
 from apps.api.extended import router
 app.include_router(router)
 from apps.api.history import router as history_router
@@ -234,14 +235,21 @@ from apps.api.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
 from apps.api.allocation import router as allocation_router
 app.include_router(allocation_router)
+from apps.api.accounts import router as accounts_router
+app.include_router(accounts_router)
+from apps.api.preferences import router as preferences_router
+app.include_router(preferences_router)
+from apps.api.fx import router as fx_router
+app.include_router(fx_router)
 
-PAGES = {'assets': '资产', 'records': '记录', 'discover': '发现', 'settings': '设置'}
+PAGES = {'assets': '资产', 'investments': '投资', 'records': '记录', 'discover': '发现', 'settings': '设置'}
 
 @app.get('/')
 def index(actor: str = Depends(authorize)):
     return RedirectResponse('/assets', status_code=307)
 
 @app.get('/assets')
+@app.get('/investments')
 @app.get('/records')
 @app.get('/discover')
 @app.get('/settings')
@@ -268,7 +276,7 @@ def page_script(filename: str):
 def assets(name: str):
     allowed = {'app.js': ('app.js', 'application/javascript'), 'style.css': ('style.css', 'text/css'),
                'charts.js': ('charts.js', 'application/javascript'), 'charts.css': ('charts.css', 'text/css'),
-               'portfolio.js': ('portfolio.js', 'application/javascript'), 'dashboard.css': ('dashboard.css', 'text/css'),
+               'dashboard.css': ('dashboard.css', 'text/css'),
                'sw.js': ('sw.js', 'application/javascript'), 'manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json'),
                'icon-192.png': ('../../assets/icon-192.png', 'image/png'), 'icon-512.png': ('../../assets/icon-512.png', 'image/png')}
     if name not in allowed: raise HTTPException(404)

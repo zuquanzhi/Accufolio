@@ -1,4 +1,4 @@
-"""Pure portfolio calculations for buy-only lots."""
+"""Pure securities calculations with moving-average cost and transaction fees."""
 from dataclasses import dataclass
 from math import isfinite
 
@@ -39,16 +39,19 @@ def summarize_trades(trades, current_price):
     for trade in trades:
         quantity, price = float(trade['shares']), float(trade['price'])
         Lot(quantity, price)
+        fee = float(trade['fee']) if 'fee' in trade.keys() else 0.0
+        if not isfinite(fee) or fee < 0:
+            raise ValueError('Transaction fee must be finite and non-negative')
         side = trade['side']
         if side == 'buy':
             shares += quantity
-            cost += quantity * price
+            cost += quantity * price + fee
         elif side == 'sell':
             if shares <= 0 or quantity > shares + 1e-9:
                 raise ValueError('Insufficient shares for sell transaction')
             quantity = min(quantity, shares)
             basis = cost * quantity / shares
-            realized += quantity * price - basis
+            realized += quantity * price - fee - basis
             shares -= quantity
             cost -= basis
             if shares < 1e-9:

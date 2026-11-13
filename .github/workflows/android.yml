@@ -50,11 +50,11 @@ jobs:
         run: |
           mkdir -p dist
           if [ '${{ inputs.sign }}' = 'true' ]; then
-            cp apps/mobile/app/build/outputs/apk/release/app-release.apk dist/Accufolio-1.5.0.apk
+            cp apps/mobile/app/build/outputs/apk/release/app-release.apk dist/Accufolio-2.0.0.apk
           else
-            cp apps/mobile/app/build/outputs/apk/debug/app-debug.apk dist/Accufolio-1.5.0.apk
+            cp apps/mobile/app/build/outputs/apk/debug/app-debug.apk dist/Accufolio-2.0.0.apk
           fi
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Accufolio-1.5.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Accufolio-2.0.0.apk
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -76,7 +76,7 @@ jobs:
           target: google_apis
           disable-animations: true
           script: |
-            python scripts/android_smoke.py dist/Accufolio-1.5.0.apk
+            python scripts/android_smoke.py dist/Accufolio-2.0.0.apk
             python scripts/android_integration.py run apps/mobile/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
@@ -92,6 +92,8 @@ jobs:
             work/android-integration/failure-ui.xml
             work/android-recovery.png
             work/android-assets.png
+            work/android-investments.png
+            work/android-reopened.png
             work/android-settings-page.png
             work/android-connection.png
             work/android-integration/server.log

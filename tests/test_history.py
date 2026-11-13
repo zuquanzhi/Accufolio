@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+from datetime import datetime
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -156,6 +157,28 @@ class HistoryTests(unittest.TestCase):
             connection.commit()
         self.assertEqual(self.load()['bars'], BARS)
         self.assertEqual(self.fetch.call_count, 2)
+
+    def test_preclose_cache_never_becomes_a_completed_candle_after_close(self):
+        self.now = datetime.fromisoformat('2026-11-13T12:00:00-05:00').timestamp()
+        self.fetch.return_value = [{'day':'2026-11-12','close':283.39},
+                                   {'day':'2026-11-13','close':278.79}]
+        first = self.load(start='2026-11-12',end='2026-11-13')
+        self.assertEqual(first['available_end'],'2026-11-12')
+        self.assertEqual(len(first['bars']),1)
+        self.now = datetime.fromisoformat('2026-11-13T16:01:00-05:00').timestamp()
+        self.fetch.side_effect = TimeoutError('not yet published')
+        fallback = self.load(start='2026-11-12',end='2026-11-13')
+        self.assertTrue(fallback['stale'])
+        self.assertEqual(fallback['available_end'],'2026-11-12')
+        self.assertEqual(len(fallback['bars']),1)
+        self.now += RETRY_SECONDS + 1
+        self.fetch.side_effect = None
+        self.fetch.return_value = [{'day':'2026-11-12','close':283.39},
+                                   {'day':'2026-11-13','close':280.5}]
+        refreshed = self.load(start='2026-11-12',end='2026-11-13')
+        self.assertEqual(refreshed['bars'][-1]['close'],280.5)
+        self.assertEqual(refreshed['available_end'],'2026-11-13')
+        self.assertFalse(refreshed['cached'])
 
     def test_stalled_source_and_large_jump_are_visible(self):
         self.fetch.return_value = BARS + [{'day': '2025-01-07', 'close': 30.0}]

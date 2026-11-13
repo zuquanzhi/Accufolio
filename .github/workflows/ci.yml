@@ -32,6 +32,8 @@ jobs:
       - run: python scripts/browser_smoke.py
       - run: python scripts/chart_smoke.py
       - run: python scripts/dashboard_smoke.py
+      - run: python scripts/preferences_smoke.py
+      - run: python scripts/login_smoke.py
   container:
     runs-on: ubuntu-latest
     steps:

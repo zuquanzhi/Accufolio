@@ -1,25 +1,24 @@
-/** Isolated settings page instance; inactive DOM stays detached. */
+/** Viewing preferences and application settings; financial records remain read-only. */
 window.AccufolioPages.settings=function(root){
-const $=selector=>root.querySelector(selector);
-const $$=selector=>[...root.querySelectorAll(selector)];
+const $=selector=>root.querySelector(selector),$$=selector=>[...root.querySelectorAll(selector)];
 const notify=message=>pageNotify(root,message);
-let lastLoaded=0;
-function updateSettingsMode(){
-  $('#ledger-mode').value=mode();$('#server-data-settings').hidden=mode()==='local';$('#system').hidden=mode()==='local';$('#local-data-settings').hidden=mode()!=='local';
-}
-updateSettingsMode();
-$('#ledger-mode').onchange=()=>{
-  const next=$('#ledger-mode').value;
-  localStorage.setItem(MODE_KEY,next);invalidateData();updateSettingsMode();notify('已切换查看的记录。');
-};
+let lastLoaded=0,healthData=null,auditRows=null;
 const nativeMatch=navigator.userAgent.match(/AccufolioAndroid\/(\d+)\.(\d+)/);
 const directNative=nativeMatch&&(Number(nativeMatch[1])>1||(Number(nativeMatch[1])===1&&Number(nativeMatch[2])>=4));
 $$('.native-action').forEach(link=>link.hidden=!directNative);
-$('#native-settings').hidden=!nativeMatch||directNative;
-$('#browser-update-note').hidden=Boolean(nativeMatch);
-async function loadHealth(){lastLoaded=Date.now();try{const health=await request('/api/health');$('#health').textContent=`v${health.release} · 数据库 ${health.database} · 最近检查 ${health.last_scan||'尚未检查'} UTC`;}catch(error){$('#health').textContent='暂时无法连接，请检查网络后重试。';}}
-$('#refresh').onclick=async()=>{invalidateData();const button=$('#refresh');button.disabled=true;try{await Promise.all([ledgerTrades(),request('/api/summary?symbol='+encodeURIComponent(currentSymbol()))]);notify('数据已刷新，前往资产或记录查看。');await loadHealth();}catch(error){notify(error.message);}finally{button.disabled=false;}};
+$('#native-settings').hidden=!nativeMatch||directNative;$('#browser-update-note').hidden=Boolean(nativeMatch);
+function updatePreferences(){
+  $('#display-currency').value=preferredCurrency();$('#currency-status').textContent=currencyNote();$('#display-timezone').value=localStorage.getItem(TIMEZONE_KEY)||'';$('#timezone-status').textContent='时间显示：'+timezoneLabel()+'。交易日期和收盘估值仍按美东交易日。';if(healthData)renderHealth();if(auditRows)renderAudit();
+
+}
+$('#display-timezone').onchange=()=>setDisplayTimezone($('#display-timezone').value);
+$('#display-currency').onchange=()=>setDisplayCurrency($('#display-currency').value);
+function renderHealth(){const health=healthData;$('#health').textContent=`v${health.release} · 数据库 ${health.database} · ${workerStatus(health.worker)}`;}
+function renderAudit(){$('#audit-items').replaceChildren(...auditRows.slice(0,30).map(item=>textRow(`${item.action} · ${item.actor}`,`${formatTimestamp(item.created_at)}（${timezoneLabel()}） · #${item.id}`)));if(!auditRows.length)$('#audit-items').append(emptyState('暂无变更记录。'));}
+async function loadHealth(){lastLoaded=Date.now();try{healthData=await request('/api/health');renderHealth();}catch(error){$('#health').textContent='暂时无法连接，无法确认后台检查是否正常。';}}
+$('#refresh').onclick=async()=>{invalidateData();const button=$('#refresh');button.disabled=true;try{await Promise.all([request('/api/trades'),request('/api/dashboard?include_history=false'),ensureDisplayRates(true)]);notify('数据已刷新，前往资产或记录查看。');await loadHealth();}catch(error){notify(error.message);}finally{button.disabled=false;}};
 $('#backup').onclick=async()=>{const button=$('#backup');button.disabled=true;try{const result=await request('/api/backup',{method:'POST'});notify('备份已保存至连接服务的 backups 目录：'+result.filename);}catch(error){notify(error.message);}finally{button.disabled=false;}};
-$('#load-audit').onclick=async()=>{try{const rows=await request('/api/audit');$('#audit-items').replaceChildren(...rows.slice(0,30).map(item=>textRow(`${item.action} · ${item.actor}`,`${item.created_at} UTC · #${item.id}`)));if(!rows.length)$('#audit-items').append(emptyState('暂无变更记录。'));}catch(error){notify(error.message);}};
-return {activate(){updateSettingsMode();if(Date.now()-lastLoaded>CACHE_TTL)loadHealth();}};
+$('#load-audit').onclick=async()=>{try{auditRows=await request('/api/audit');renderAudit();}catch(error){notify(error.message);}};
+$('#logout').onclick=async()=>{const button=$('#logout');button.disabled=true;try{await request('/api/session',{method:'DELETE'});location.replace('/login');}catch(error){notify(error.message);button.disabled=false;}};
+return {activate(){updatePreferences();if(Date.now()-lastLoaded>CACHE_TTL)loadHealth();},preferencesChanged:updatePreferences};
 };

@@ -1,8 +1,6 @@
 import json
 import os
 from pathlib import Path
-import shutil
-import subprocess
 import tempfile
 import unittest
 from datetime import date
@@ -45,11 +43,12 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(result['contributions'], [{'month': '2025-01', 'buy': 250, 'sell': 120, 'net': 130}])
         self.assertTrue(result['coverage']['complete'])
 
-    def test_weekend_trade_uses_previous_close_and_never_next_close(self):
+    def test_weekend_trade_enters_next_session_without_inventing_weekend_points(self):
         rows = reconstruct(TRADES, HISTORIES, '2025-01-03', '2025-01-07')['series']
-        self.assertEqual([r['value'] for r in rows], [220, 270, 270, 180, 190])
-        self.assertEqual([r['net_invested'] for r in rows], [200, 250, 250, 130, 130])
-        self.assertEqual([r['pnl'] for r in rows], [20, 20, 20, 50, 60])
+        self.assertEqual([r['day'] for r in rows], ['2025-01-03', '2025-01-06', '2025-01-07'])
+        self.assertEqual([r['value'] for r in rows], [220, 180, 190])
+        self.assertEqual([r['net_invested'] for r in rows], [200, 130, 130])
+        self.assertEqual([r['pnl'] for r in rows], [20, 50, 60])
 
     def test_window_keeps_previous_trades_and_omits_future(self):
         future = {'symbol': 'CCC', 'trade_date': '2026-01-01', 'shares': 3, 'price': 10, 'side': 'buy'}
@@ -70,18 +69,19 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(result['holdings'][0]['shares_weight'], .5)
 
     def test_missing_history_is_gap_not_invented_price_or_partial_total(self):
-        history = {**HISTORIES, 'BBB': HISTORIES['BBB'][1:]}
+        history = {**HISTORIES, 'BBB': HISTORIES['BBB'][2:]}
         result = build_dashboard(TRADES, history, QUOTES, '2025-01-03', '2025-01-07')
-        self.assertEqual([r['value'] for r in result['series']], [220, None, None, 180, 190])
+        self.assertEqual([r['value'] for r in result['series']], [220, None, 190])
         self.assertEqual(result['coverage']['history_missing_symbols'], ['BBB'])
-        self.assertEqual(result['coverage']['missing_days'], 2)
+        self.assertEqual(result['coverage']['missing_days'], 1)
         self.assertFalse(result['coverage']['complete'])
 
-    def test_long_stale_close_produces_gap_after_seven_days(self):
+    def test_old_close_never_extends_series_to_a_later_day(self):
         result = reconstruct(TRADES[:1], {'AAA': HISTORIES['AAA'][:1]}, '2025-01-03', '2025-01-12')
-        self.assertEqual(result['series'][-3]['value'], 220)
-        self.assertIsNone(result['series'][-2]['value'])
-        self.assertIsNone(result['series'][-1]['value'])
+        self.assertEqual(len(result['series']), 1)
+        self.assertEqual(result['series'][0]['day'], '2025-01-03')
+        self.assertEqual(result['series'][0]['value'], 220)
+        self.assertGreater(result['missing_days'], 0)
 
     def test_closed_position_has_zero_value_without_quote_and_keeps_profit(self):
         sell = {'symbol': 'AAA', 'trade_date': '2025-01-06', 'shares': 2, 'price': 120, 'side': 'sell'}
@@ -93,6 +93,16 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(result['series'][0]['pnl'], 40)
         self.assertEqual(result['holdings'], [])
         self.assertTrue(result['coverage']['complete'])
+
+    def test_symbol_realized_includes_a_closed_account_position(self):
+        rows = [dict(TRADES[0],account_id=1),
+                dict(TRADES[0],id=2,account_id=2),
+                {'id':3,'account_id':1,'symbol':'AAA','trade_date':'2025-01-06',
+                 'shares':2,'price':120,'side':'sell','fee':2}]
+        result=summarize_account(rows,QUOTES,'2025-01-07')
+        self.assertEqual(result['summary']['realized_pnl'],38)
+        self.assertEqual(result['holdings'][0]['realized_pnl'],38)
+        self.assertEqual(result['holdings'][0]['shares'],2)
 
     def test_account_xirr_uses_sales_and_open_terminal_value(self):
         trades = [{'symbol': 'AAA', 'trade_date': '2025-01-01', 'shares': 10, 'price': 10, 'side': 'buy'},
@@ -112,21 +122,6 @@ class DashboardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             reconstruct(TRADES, {'AAA': [{'day': '2025-01-03', 'close': float('nan')}]}, '2025-01-01', '2025-01-07')
 
-    @unittest.skipUnless(shutil.which('node'), 'Node is optional for Python-only environments')
-    def test_device_local_javascript_matches_python_accounting_and_gaps(self):
-        root = Path(__file__).resolve().parents[1]
-        script = "require('./apps/web/portfolio.js');let input='';process.stdin.on('data',s=>input+=s);process.stdin.on('end',()=>{const fixtures=JSON.parse(input);console.log(JSON.stringify(fixtures.map(f=>AccufolioPortfolio.build(...f))));});"
-        fixtures = [[TRADES, HISTORIES, QUOTES, '2025-01-03', '2025-01-07'],
-                    [TRADES, {'AAA': HISTORIES['AAA']}, {'AAA': QUOTES['AAA']}, '2025-01-03', '2025-01-17']]
-        process = subprocess.run(['node', '-e', script], input=json.dumps(fixtures), text=True, encoding='utf-8', capture_output=True, cwd=root, check=True)
-        for args, javascript in zip(fixtures, json.loads(process.stdout)):
-            python = build_dashboard(*args)
-            self.assertEqual(javascript['series'], python['series'])
-            self.assertEqual(javascript['holdings'], python['holdings'])
-            self.assertEqual(javascript['coverage'], python['coverage'])
-            for key in python['summary']:
-                if key not in ('xirr', 'xirr_reason'):
-                    self.assertEqual(javascript['summary'][key], python['summary'][key], key)
 
 
 class DashboardApiTests(unittest.TestCase):

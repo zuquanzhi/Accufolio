@@ -1,4 +1,7 @@
 services:
+  accufolio:
+    environment:
+      ACCUFOLIO_PUBLIC_ORIGIN: https://${ACCUFOLIO_DOMAIN:?Set your domain in .env}
   caddy:
     image: caddy:2
     restart: unless-stopped

@@ -9,6 +9,7 @@ from math import isfinite
 from urllib.request import Request, urlopen
 
 from packages.core import rules
+from packages.core.market_time import et_today, market_clock
 
 VIX_URL = 'https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv'
 TTL_SECONDS = 6 * 60 * 60
@@ -111,7 +112,7 @@ def evaluate_calm(symbol, today=None):
     report that exact date and skip once it is more than seven days old.
     """
     from apps.api.history import get_history
-    today = today or datetime.now(timezone.utc).date()
+    today = today or date.fromisoformat(market_clock()['last_completed_session'])
     skipped = lambda reason: {'status': 'skipped', 'reason': reason}
     try:
         history = get_history(symbol, start=today - timedelta(days=100), end=today)

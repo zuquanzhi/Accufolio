@@ -4,24 +4,22 @@ from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from apps.api.auth import authorize as _authorize
 
 from apps.api.history import get_history
 from packages.core.dashboard import build_dashboard, summarize_account
 from packages.providers import get_quote
+from packages.core.market_time import market_clock
 
 router = APIRouter()
-
-
-def _authorize(credentials: HTTPBasicCredentials = Depends(HTTPBasic())):
-    from apps.api.main import authorize
-    return authorize(credentials)
 
 
 @router.get('/api/dashboard')
 def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: bool = True, actor: str = Depends(_authorize)):
     from apps.api.main import db
-    today = date.today()
+    clock = market_clock()
+    today = date.fromisoformat(clock['date'])
+    completed = date.fromisoformat(clock['last_completed_session'])
     with db() as con:
         trades = [dict(row) for row in con.execute('SELECT * FROM trades WHERE deleted=0 ORDER BY trade_date,id')]
     valid = [row for row in trades if row['trade_date'] <= today.isoformat()]
@@ -49,7 +47,7 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
         if not include_history:
             return symbol, quote, None
         try:
-            history = get_history(symbol, start=history_start, end=today)
+            history = get_history(symbol, start=history_start, end=completed)
         except Exception:
             history = {'bars': [], 'source': 'sina', 'stale': False, 'cached': False,
                        'errors': ['日线暂不可用'], 'warnings': []}
@@ -72,7 +70,11 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
                                 'available_start': history.get('available_start'),
                                 'available_end': history.get('available_end')})
                 warnings.extend(f'{symbol}：{warning}' for warning in history.get('errors', []) + history.get('warnings', []))
-    result = build_dashboard(trades, histories, quotes, start, today, include_history=include_history)
+    result = build_dashboard(trades, histories, quotes, start, today, include_history=include_history,
+                             history_end=completed)
+    result['market'] = clock
+    result['valuation_basis'] = 'latest_quote'
+    result['history_basis'] = 'completed_session_close'
     result['period'] = period
     result['coverage']['stale_symbols'] = [source['symbol'] for source in sources if source['stale']]
     if result['coverage']['stale_symbols']:
@@ -80,7 +82,9 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
     result['sources'] = sources
     result['truncated'] = period == 'all' and first < earliest
     result['method'] = 'trade_reconstruction_unadjusted'
-    result['method_note'] = '按买卖记录与未复权收盘价重建持仓市值；净投入为累计买入减累计卖出。不含账户现金、分红与手续费，不是账户净值。'
+    result['method_note'] = '日期按美东交易日计算。历史曲线仅使用已收盘交易日的同日未复权价格，缺失保持断线，末点停在最后完整收盘估值；顶部使用最近行情，两者分别标注。净投入为含手续费的买入支出减卖出净收入，不含现金账户与分红，不是账户净值。'
+    if include_history and result['summary']['holding_count'] and result['end'] != completed.isoformat():
+        warnings.append(f'最近已收盘交易日为 {completed.isoformat()}；历史曲线仅到 {result["end"] or "暂无完整收盘数据"}，不使用旧价格补成今天。')
     if result['truncated']:
         warnings.append('曲线最多展示最近 30 年；此前交易仍计入持仓与净投入。')
     if result['summary']['excluded_future_trades']:

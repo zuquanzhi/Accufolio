@@ -6,8 +6,8 @@ from packages.providers import get_quote
 mcp = FastMCP('Accufolio')
 
 @mcp.tool()
-def get_summary(symbol: str = 'QQQM') -> dict:
-    """Get holdings, costs, valuation and XIRR for a symbol, including data-source health."""
+def get_summary(symbol: str) -> dict:
+    """Single-symbol holdings/cost/valuation/XIRR. Use get_dashboard for the whole account."""
     return summary(symbol=symbol, actor='mcp')
 
 @mcp.tool()
@@ -29,24 +29,22 @@ def require_write():
         raise PermissionError('MCP write scope is disabled')
 
 @mcp.tool()
-def add_trade(symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True, side: str = 'buy') -> dict:
+def add_trade(symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True, side: str = 'buy', account_id: int = 1, currency: str = 'USD', fee: float = 0, strategy: str = 'manual') -> dict:
     """Preview or record a buy or sell. Requires write scope and a unique retry-safe key."""
     from apps.api.main import Trade, mutate_trade
     require_write()
     if not idempotency_key: raise ValueError('idempotency_key is required')
-    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note, side=side)
-    if dry_run: return {'preview':trade.model_dump(mode='json')}
-    return mutate_trade('add', trade, None, 'mcp', idempotency_key)
+    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note, side=side,account_id=account_id,currency=currency,fee=fee,strategy=strategy)
+    return mutate_trade('add', trade, None, 'mcp', idempotency_key, dry_run)
 
 @mcp.tool()
-def update_trade(trade_id: int, symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True, side: str = 'buy') -> dict:
+def update_trade(trade_id: int, symbol: str, trade_date: str, shares: float, price: float, idempotency_key: str, note: str = '', dry_run: bool = True, side: str = 'buy', account_id: int = 1, currency: str = 'USD', fee: float = 0, strategy: str = 'manual') -> dict:
     """Preview or replace a trade. Changes are audited and can be undone."""
     from apps.api.main import Trade, mutate_trade
     require_write()
     if not idempotency_key: raise ValueError('idempotency_key is required')
-    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note, side=side)
-    if dry_run: return {'trade_id':trade_id,'preview':trade.model_dump(mode='json')}
-    return mutate_trade('update',trade,trade_id,'mcp',idempotency_key)
+    trade = Trade(symbol=symbol, trade_date=trade_date, shares=shares, price=price, note=note, side=side,account_id=account_id,currency=currency,fee=fee,strategy=strategy)
+    return mutate_trade('update',trade,trade_id,'mcp',idempotency_key,dry_run)
 
 @mcp.tool()
 def delete_trade(trade_id: int, idempotency_key: str, dry_run: bool = True) -> dict:
@@ -54,8 +52,7 @@ def delete_trade(trade_id: int, idempotency_key: str, dry_run: bool = True) -> d
     from apps.api.main import mutate_trade
     require_write()
     if not idempotency_key: raise ValueError('idempotency_key is required')
-    if dry_run: return {'preview':{'delete_trade':trade_id}}
-    return mutate_trade('delete',None,trade_id,'mcp',idempotency_key)
+    return mutate_trade('delete',None,trade_id,'mcp',idempotency_key,dry_run)
 
 @mcp.tool()
 def undo_trade_change(audit_id: int) -> dict:
@@ -83,37 +80,106 @@ def get_dashboard(period: str = '1y') -> dict:
     return dashboard(period=period, actor='mcp')
 
 @mcp.tool()
-def get_allocation_plan() -> dict:
-    """Read other-funds balance, separate investment/total-assets targets and revision."""
+def get_allocation_targets() -> dict:
+    """Read percentage targets for securities and named net-worth accounts."""
     from apps.api.allocation import allocation
     return allocation(actor='mcp')
 
 @mcp.tool()
-def set_allocation_plan(expected_revision: int, idempotency_key: str,
-                        reserve_amount: float | None = None, reserve_as_of: str | None = None,
-                        investment_targets: dict[str, float] | None = None,
-                        total_targets: dict[str, float] | None = None,
-                        note: str = '', dry_run: bool = True) -> dict:
-    """Replace allocation plan after reading latest revision. USD only, audited, retry-safe.
+def set_allocation_targets(scope: str, targets: dict[str, float], expected_revision: int,
+                           idempotency_key: str, dry_run: bool = True) -> dict:
+    """Replace one scope's weights, keeping the other. No balance aggregate is stored.
 
-    reserve_amount is an independently reported balance of other funds, not inferred
-    cash from trades. Update it explicitly when salary, spending or transfers change
-    it. All-asset value adds current stocks to this dated balance. Targets use percent
-    and must sum to 100; __RESERVE__ denotes other funds in total_targets only. Empty targets
-    clear that plan. This is a complete replacement: retain fields you want to keep.
-    UI is read-only. Preview by default, submit with dry_run=false and a unique key.
+    scope=securities keys are stock symbols; net_worth keys are account:<id>.
+    Nonempty weights must total100. Read latestrevision, preview then submit.
     """
-    from apps.api.allocation import AllocationPlan, save_plan, allocation, validate_change
+    from apps.api.allocation import save_targets
     require_write()
-    plan = AllocationPlan(reserve_amount=reserve_amount, reserve_as_of=reserve_as_of,
-                          investment_targets=investment_targets or {}, total_targets=total_targets or {}, note=note)
-    validate_change(plan, expected_revision, idempotency_key)
-    if dry_run:
-        current = allocation(actor='mcp')
-        if current['revision'] != expected_revision:
-            raise ValueError('Allocation changed; read the latest plan before updating')
-        return {'preview': plan.model_dump(mode='json'), 'expected_revision': expected_revision}
-    return save_plan(plan, expected_revision, idempotency_key)
+    return save_targets(scope, targets, expected_revision, idempotency_key, dry_run)
+
+@mcp.tool()
+def get_assets() -> dict:
+    """Net assets from securities and explicit per-account cash balances, with FX dates."""
+    from apps.api.accounts import assets
+    return assets(actor='mcp')
+
+@mcp.tool()
+def list_accounts() -> list[dict]:
+    """List named accounts, currency, purpose, derived cash balance and revision."""
+    from apps.api.accounts import list_accounts as read
+    return read(actor='mcp')
+
+@mcp.tool()
+def list_cash_entries(account_id: int) -> list[dict]:
+    """Read the cash journal that makes up an account balance."""
+    from apps.api.accounts import list_cash_entries as read
+    return read(account_id,actor='mcp')
+
+@mcp.tool()
+def set_account(name: str, kind: str, purpose: str, currency: str,
+                expected_revision: int, idempotency_key: str, account_id: int | None = None,
+                institution: str = '', opened_on: str | None = None,
+                archived: bool = False, note: str = '', dry_run: bool = True) -> dict:
+    """Create/replace account metadata. No balance field; amounts come from cash entries.
+
+    kind: broker/bank/ewallet/provident/other; purpose: investing/savings/emergency/
+    spending/housing_fund. One currency per account. A new account uses revision0.
+    Read latest metadata before replacement; retain fields you want to keep.
+    """
+    from apps.api.accounts import Account, save_account
+    require_write()
+    return save_account(Account(name=name,kind=kind,purpose=purpose,currency=currency,
+                        institution=institution,opened_on=opened_on,archived=archived,note=note),
+                        account_id,expected_revision,idempotency_key,dry_run)
+
+@mcp.tool()
+def add_cash_entry(account_id: int, entry_date: str, kind: str, amount: float, currency: str,
+                   expected_revision: int, idempotency_key: str, symbol: str | None = None,
+                   note: str = '', dry_run: bool = True) -> dict:
+    """Append one signed cash entry, preview by default. Account revision is required.
+
+    Positive: balance_open/deposit/interest/dividend; negative: withdraw/fee.
+    Use transfer_cash for both transfer/FX legs atomically. Securities records
+    do not automatically settle cash; record actual cash movements explicitly.
+    Cash dividends are journaled here; securities XIRR currently covers trades.
+    """
+    from apps.api.accounts import CashEntry, add_cash_entry as save
+    require_write()
+    return save(CashEntry(account_id=account_id,entry_date=entry_date,kind=kind,amount=amount,
+                         currency=currency,symbol=symbol,note=note),expected_revision,idempotency_key,dry_run)
+
+@mcp.tool()
+def transfer_cash(source_id: int, destination_id: int, source_amount: float,
+                  destination_amount: float, entry_date: str, source_revision: int,
+                  destination_revision: int, idempotency_key: str,
+                  note: str = '', dry_run: bool = True) -> dict:
+    """Record both account transfer legs atomically; explicit actual amounts set the FX rate."""
+    from apps.api.accounts import transfer_cash as save
+    require_write()
+    return save(source_id,destination_id,source_amount,destination_amount,entry_date,
+                source_revision,destination_revision,idempotency_key,note,dry_run)
+
+@mcp.tool()
+def reverse_cash_entry(entry_id: int, entry_date: str, expected_revision: int,
+                       idempotency_key: str, note: str = '', dry_run: bool = True) -> dict:
+    """Correct an unpaired cash entry with a linked opposite entry; never erase its history."""
+    from apps.api.accounts import reverse_cash_entry as save
+    require_write()
+    return save(entry_id,entry_date,expected_revision,idempotency_key,note,dry_run)
+
+@mcp.tool()
+def get_settings() -> dict:
+    """Read shared display defaults. Device-specific display choices can override them."""
+    from apps.api.preferences import get_settings as read
+    return read()
+
+@mcp.tool()
+def set_settings(display_currency: str, market_timezone: str, expected_revision: int,
+                 idempotency_key: str, dry_run: bool = True) -> dict:
+    """Replace shared display preferences. US market calculations always use Eastern Time."""
+    from apps.api.preferences import set_settings as save
+    require_write()
+    return save(display_currency,market_timezone,expected_revision,idempotency_key,dry_run)
 
 @mcp.tool()
 def set_watchlist(symbol: str, threshold: float = 2) -> dict:

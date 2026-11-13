@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
                 saveServer(server);openServer(server);
             } catch(IllegalArgumentException e){error.setText(e.getMessage());error.setVisibility(View.VISIBLE);}
         });
-        Button update=button("版本 1.5.0 · 检查更新",false);update.setTextSize(13);update.setTextColor(MUTED);
+        Button update=button("版本 2.0.0 · 检查更新",false);update.setTextSize(13);update.setTextColor(MUTED);
         update.setBackgroundColor(Color.TRANSPARENT);update.setOnClickListener(v->AppUpdater.check(this));footer.addView(update);root.addView(footer);
     }
     private void saveServer(String server){
@@ -153,7 +153,7 @@ public class MainActivity extends Activity {
         }
     }
     private void editAddress(){
-        LinearLayout form=column(20);form.addView(label("更换连接会关闭当前页面。随手记仍保留在原站点的设备存储中。",14,MUTED));
+        LinearLayout form=column(20);form.addView(label("更换连接会打开新站点，登录状态和显示偏好按站点分别保存。",14,MUTED));
         EditText input=addressField();form.addView(input);TextView error=label("",14,Color.rgb(175,52,60));form.addView(error);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("连接地址").setView(form).setNegativeButton("取消",null).setPositiveButton("连接",null).create();
         dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
@@ -178,7 +178,7 @@ public class MainActivity extends Activity {
         root.removeAllViews();
         web=new WebView(this);web.setBackgroundColor(BACKGROUND);
         WebSettings options=web.getSettings();options.setJavaScriptEnabled(true);options.setDomStorageEnabled(true);
-        options.setUserAgentString(options.getUserAgentString()+" AccufolioAndroid/1.5.0");
+        options.setUserAgentString(options.getUserAgentString()+" AccufolioAndroid/2.0.0");
         options.setAllowFileAccess(false);options.setAllowContentAccess(false);options.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         options.setCacheMode(WebSettings.LOAD_NO_CACHE);options.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);web.setWebChromeClient(new WebChromeClient());
@@ -205,7 +205,14 @@ public class MainActivity extends Activity {
                 return new WebResourceResponse("text/plain","UTF-8",403,"Forbidden",null,new ByteArrayInputStream(new byte[0]));
             }
             @Override public void onPageFinished(WebView view,String url){
-                if(!pageFailed && ServerPolicy.isTrusted(origin,url))recovery.setVisibility(View.GONE);
+                if(!pageFailed && ServerPolicy.isTrusted(origin,url)){
+                    recovery.setVisibility(View.GONE);
+                    // Persist the server-issued HttpOnly device token, never the password.
+                    CookieManager.getInstance().flush();
+                    if(URI.create(url).getPath().equals("/login")){
+                        clearCredentials();WebViewDatabase.getInstance(MainActivity.this).clearHttpAuthUsernamePassword();
+                    }
+                }
             }
             @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame())connectionFailed("暂时无法连接。你可以检查网络，或更换连接地址。");}
             @Override public void onReceivedHttpError(WebView view,WebResourceRequest request,WebResourceResponse response){if(request.isForMainFrame())connectionFailed("站点暂时不可用（"+response.getStatusCode()+"）。请稍后重试或检查连接。");}
@@ -230,7 +237,8 @@ public class MainActivity extends Activity {
         web.setDownloadListener((url,agent,disposition,mime,length)->{
             if(!ServerPolicy.isTrusted(origin,url))return;
             try{DownloadManager.Request request=new DownloadManager.Request(Uri.parse(url));if(authorization!=null)request.addRequestHeader("Authorization",authorization);
-                request.setTitle("Accufolio 交易导出");request.setMimeType("application/json");request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,"accufolio-trades-"+System.currentTimeMillis()+".json");
+                String cookies=CookieManager.getInstance().getCookie(url);if(cookies!=null)request.addRequestHeader("Cookie",cookies);
+                request.setTitle("Accufolio 数据导出");request.setMimeType("application/json");request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,"accufolio-"+System.currentTimeMillis()+".json");
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);((DownloadManager)getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(request);
                 Toast.makeText(this,"已开始导出，文件保存在下载目录",Toast.LENGTH_LONG).show();
             }catch(Exception e){Toast.makeText(this,"无法导出，请在浏览器中重试",Toast.LENGTH_LONG).show();}
@@ -251,7 +259,7 @@ public class MainActivity extends Activity {
     private void cancelAuth(){for(AuthChallenge item:pendingAuth)item.handler.cancel();pendingAuth.clear();}
     private void clearCredentials(){authorization=null;authHost=null;authRealm=null;authUser=null;authPassword=null;}
     @Override protected void onResume(){super.onResume();if(web!=null){web.onResume();web.evaluateJavascript("if(typeof checkVersion==='function'){checkVersion();}",null);}}
-    @Override protected void onPause(){if(web!=null)web.onPause();super.onPause();}
+    @Override protected void onPause(){if(web!=null)web.onPause();CookieManager.getInstance().flush();super.onPause();}
     @Override public void onBackPressed(){
         if(web!=null && ServerPolicy.isTrusted(origin,web.getUrl())){
             web.evaluateJavascript("typeof window.accufolioBack==='function' ? window.accufolioBack() : false",result->{if(!"true".equals(result))navigateBack();});

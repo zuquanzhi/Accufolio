@@ -56,15 +56,18 @@ def record_alert(con, symbol, message, dedupe, kind, level=None, as_of=None):
 
 
 def scan_all():
-    day = datetime.now(timezone.utc).date().isoformat()
+    from apps.api.maintenance import update_scan_progress, cleanup_alerts
+    from packages.core.market_time import et_today
+    day = et_today().isoformat()
     rows = watchlist(actor='scheduler')
     results = []
     for row in rows:
+        update_scan_progress()
         symbol = row['symbol']
         result = get_quote(symbol)
         q = result.quote
         error = '; '.join(result.errors) if result.degraded else None
-        level = rules.movement_level(q.change_percent, row['threshold']) if q and not result.degraded else 0
+        level = rules.movement_level(q.change_percent, row['threshold']) if q else 0
         calm = evaluate_calm(symbol)
         with db() as con:
             monitoring_schema(con)
@@ -91,8 +94,10 @@ def scan_all():
             con.execute("DELETE FROM scans WHERE ts < datetime('now','-90 days')")
             con.execute("DELETE FROM movement_high_water WHERE day < date('now','-90 days')")
         results.append({'symbol':symbol,'degraded':result.degraded,'movement_level':level,'calm':calm})
+        update_scan_progress()
     # Existing due notifications are retried even when the watchlist is empty.
     notifications.deliver_pending(db)
+    cleanup_alerts()
     return results
 
 @router.post('/scan', dependencies=[Depends(csrf)])
@@ -128,14 +133,22 @@ def daily(actor: str = Depends(authorize)):
 
 @router.get('/health')
 def health(actor: str = Depends(authorize)):
+    from apps.api.maintenance import worker_status
     delivery = notifications.delivery_status(db)
+    worker = worker_status()
     with db() as con:
-        return {'release':'1.5.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC', 'notifications': delivery}
+        return {'release':'2.0.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC', 'notifications': delivery, 'worker': worker}
 
 @router.get('/export')
 def export(actor: str = Depends(authorize)):
-    from apps.api.main import trades
-    return Response(json.dumps({'format':'accufolio-trades-v1','trades':trades(actor=actor)},ensure_ascii=False),media_type='application/json',headers={'Content-Disposition':'attachment; filename="accufolio-trades.json"','Cache-Control':'no-store'})
+    # One read transaction: account balances and their journal cannot diverge
+    # if an Agent records a transfer while the export is being assembled.
+    with db() as con:
+        con.execute('BEGIN')
+        data = {'format':'accufolio-v2', 'exported_at':datetime.now(timezone.utc).isoformat()}
+        for table in ('accounts','cash_entries','trades','fx_rates','settings','allocation_targets'):
+            data[table] = [dict(row) for row in con.execute('SELECT * FROM ' + table)]
+    return Response(json.dumps(data,ensure_ascii=False),media_type='application/json',headers={'Content-Disposition':'attachment; filename="accufolio.json"','Cache-Control':'no-store'})
 
 @router.post('/audit/{audit_id}/undo', dependencies=[Depends(csrf)])
 def undo(audit_id: int, actor: str = Depends(authorize)):
@@ -147,14 +160,15 @@ def undo(audit_id: int, actor: str = Depends(authorize)):
         data = json.loads(audit['details'])
         if audit['action'] not in ('add_trade','update_trade','delete_trade') or 'after' not in data: raise HTTPException(422,'This audit cannot be undone')
         current = con.execute('SELECT * FROM trades WHERE id=?',(data['id'],)).fetchone()
-        if 'side' not in data['after']: data['after']['side'] = 'buy'
         if not current or dict(current) != data['after']: raise HTTPException(409,'Trade changed since this action; undo newer changes first')
         before=data['before']
         if before is None:
             con.execute('UPDATE trades SET deleted=1 WHERE id=?',(data['id'],))
         else:
-            before.setdefault('side', 'buy')
-            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,deleted=?,side=? WHERE id=?',tuple(before[k] for k in ('symbol','trade_date','shares','price','note','deleted','side'))+(data['id'],))
+            from apps.api.main import validate_trade_account
+            if not before['deleted']:
+                validate_trade_account(con, before)
+            con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,deleted=?,side=?,account_id=?,currency=?,fee=?,strategy=? WHERE id=?',tuple(before[k] for k in ('symbol','trade_date','shares','price','note','deleted','side','account_id','currency','fee','strategy'))+(data['id'],))
         from apps.api.main import validate_trade_history
         validate_trade_history(con)
         con.execute('INSERT INTO reversals VALUES(?)',(audit_id,))

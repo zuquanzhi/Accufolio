@@ -28,7 +28,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(self.client.get('/api/trades', auth=self.auth).json()[0]['symbol'], 'QQQM')
         with patch('apps.api.main.get_quote', return_value=QuoteResult(None, True, ('offline',))):
-            result=self.client.get('/api/summary', auth=self.auth).json()
+            result=self.client.get('/api/summary?symbol=QQQM', auth=self.auth).json()
             self.assertEqual(result['cost'], 200)
             self.assertTrue(result['degraded'])
         self.assertEqual(self.client.delete('/api/trades/1', auth=self.auth, headers={'X-Accufolio':'1'}).status_code, 200)
@@ -67,19 +67,19 @@ class ApiTests(unittest.TestCase):
         root = self.client.get('/', auth=self.auth, follow_redirects=False)
         self.assertEqual(root.status_code, 307)
         self.assertEqual(root.headers['location'], '/assets')
-        for name in ['assets', 'records', 'discover', 'settings']:
+        for name in ['assets', 'investments', 'records', 'discover', 'settings']:
             self.assertEqual(self.client.get('/'+name).status_code, 401)
             response = self.client.get('/'+name, auth=self.auth)
             self.assertEqual(response.status_code, 200)
             self.assertIn('no-store', response.headers['cache-control'])
             self.assertEqual(response.text.count('class="app-view'), 1)
-            for other in ['assets', 'records', 'discover', 'settings']:
+            for other in ['assets', 'investments', 'records', 'discover', 'settings']:
                 self.assertEqual(('id="view-'+other+'"') in response.text, other == name)
             self.assertIn('src="/pages/'+name+'.js"', response.text)
             self.assertEqual(self.client.get('/pages/'+name+'.js').status_code, 200)
         self.assertEqual(self.client.get('/api/ui/pages').status_code, 401)
         fragments = self.client.get('/api/ui/pages', auth=self.auth).json()
-        self.assertEqual(set(fragments), {'assets', 'records', 'discover', 'settings'})
+        self.assertEqual(set(fragments), {'assets', 'investments', 'records', 'discover', 'settings'})
         for name, html in fragments.items():
             self.assertEqual(html.count('class="app-view'), 1)
             self.assertIn('id="view-'+name+'"', html)
@@ -102,7 +102,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/trades',auth=self.auth).json()[0]['price'],100)
         backup=self.client.post('/api/backup',auth=self.auth,headers=h).json()
         self.assertTrue((Path(self.tmp.name)/'backups'/backup['filename']).exists())
-        self.assertEqual(self.client.get('/api/export',auth=self.auth).json()['format'],'accufolio-trades-v1')
+        exported=self.client.get('/api/export',auth=self.auth).json()
+        self.assertEqual(exported['format'],'accufolio-v2')
+        self.assertEqual(set(exported),{'format','exported_at','accounts','cash_entries','trades','fx_rates','settings','allocation_targets'})
+        self.assertEqual(exported['trades'][0]['account_id'],exported['accounts'][0]['id'])
+        self.assertEqual(exported['trades'][0]['price'],100)
+        self.assertNotIn('test-password',str(exported))
 
     def test_monitoring_deduplication(self):
         from packages.providers import Quote

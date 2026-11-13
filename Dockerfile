@@ -4,6 +4,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt && useradd --create-home --uid 10001 app
 COPY apps ./apps
 COPY packages ./packages
+COPY sql ./sql
 COPY assets ./assets
 RUN mkdir -p /data && chown app:app /data
 USER app
