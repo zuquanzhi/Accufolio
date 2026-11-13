@@ -16,6 +16,8 @@ time.sleep(3)
 ui=screen()
 texts=[n.attrib.get('text','') for n in ui.iter('node')]
 assert 'Accufolio' in texts and '连接服务器' in texts,texts
+pathlib.Path('work').mkdir(exist_ok=True)
+with open('work/android-welcome.png','wb') as f:subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 entry=next(n for n in ui.iter('node') if n.attrib.get('class')=='android.widget.EditText')
 tap(entry)
 adb('shell','input','text','http://example.com')
@@ -25,6 +27,5 @@ time.sleep(1)
 ui=screen();texts=[n.attrib.get('text','') for n in ui.iter('node')]
 assert any('请输入完整 HTTPS' in t for t in texts),texts
 assert adb('shell','pidof','io.accufolio.app').strip()
-pathlib.Path('work').mkdir(exist_ok=True)
 with open('work/android-onboarding.png','wb') as f:subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 print('Signed APK installation, launch, onboarding and cleartext URL rejection passed.')

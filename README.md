@@ -1,127 +1,100 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Accufolio" width="128">
+  <img src="assets/logo.png" alt="Accufolio logo" width="112">
   <h1>Accufolio</h1>
-  <p>长期投资，从容积累。<br>Own your portfolio. Understand your progress.</p>
-  <p><a href="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/zuquanzhi/Accufolio/releases">Releases</a> · <a href="LICENSE">Apache 2.0</a></p>
+  <p><strong>长期投资，从容积累。</strong></p>
+  <p>自托管的投资账本，帮你记录每一次投入，看清长期投资的进度。</p>
+  <p>
+    <a href="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml"><img src="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml/badge.svg" alt="构建与测试状态"></a>
+    <a href="https://github.com/zuquanzhi/Accufolio/releases/latest"><img src="https://img.shields.io/github/v/release/zuquanzhi/Accufolio" alt="最新版本"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0 许可证"></a>
+  </p>
+  <p><a href="#快速开始">快速开始</a> · <a href="#手机使用">手机使用</a> · <a href="guides/使用与部署.md">使用与部署指南</a> · <a href="https://github.com/zuquanzhi/Accufolio/releases">版本下载</a> · <a href="README.en.md">English</a></p>
 </div>
 
-Accufolio 是面向长期定投者的单用户、自托管投资账本。v1 聚焦买入记录、持仓分析、策略比较、行情监控和 AI 账本管理；支持 Android APK 与手机 PWA。数据保存在你自己的 SQLite 数据库中。
+---
 
-## v1 功能
+Accufolio 面向长期定投者，提供买入记账、持仓分析、策略回测与行情监控。它是单用户、自托管应用：数据保存在自己的 SQLite 数据库中，可通过浏览器、PWA 或 Android 客户端访问。
 
-- **持仓账本**：新增、编辑、软删除交易；成本、均价、市值、盈亏和 XIRR。样本不足 90 天不显示年化。
-- **策略实验室**：粘贴日线收盘价，比较固定月投、季度投入、等待回撤和定投加码；同时展示标的区间收益与收盘价最大回撤。
-- **行情监控**：新浪美股报价，失败明确提示；关注列表每 5 分钟扫描，涨跌幅阈值提醒、数据源故障提醒、每日行情摘要。提醒在应用内查看，不发送外部消息。
-- **可撤销的写操作**：持久化审计，支持撤销未被后续修改覆盖的交易操作；提供幂等键防止重复写入。
-- **数据管理**：JSON 交易导出、每日数据库备份、手动备份和健康状态。
-- **MCP**：本地 stdio 服务，默认只读；显式开启写权限后可预览、记账、修改、删除、撤销和配置监控。
-- **手机自动更新**：安装为 PWA 后，每分钟和恢复前台时检查服务端版本。没有未保存内容时自动刷新，有输入时先提示。
+## 产品预览
+
+| 桌面 Web | 手机 Web / PWA |
+|:---:|:---:|
+| <img src="assets/previews/web-overview.png" alt="Accufolio 桌面持仓总览" width="800"> | <img src="assets/previews/mobile-overview.png" alt="Accufolio 手机持仓总览" width="235"> |
+
+<details>
+<summary>查看更多：策略回测、行情监控和手机交易记录</summary>
+<br>
+<img src="assets/previews/web-backtest.png" alt="策略回测结果" width="800">
+<img src="assets/previews/web-monitoring.png" alt="行情监控" width="800">
+<img src="assets/previews/mobile-trades.png" alt="手机交易记录" width="280">
+</details>
+
+预览来自实际运行的界面，使用独立数据库和模拟交易、行情数据；数值仅用于演示。手机图展示响应式网页，Android 客户端连接服务器后展示同一界面。
+
+## 能做什么
+
+- **记录与分析** — 维护买入记录，查看投入、持仓、均价、市值、盈亏和 XIRR；交易修改可审计、可撤销。
+- **比较定投策略** — 粘贴日线收盘价，比较四种投入策略，查看期末资产、区间收益及标的收盘价最大回撤。
+- **跟踪行情** — 使用新浪美股报价，配置关注列表和涨跌幅阈值，在应用内查看提醒与数据源状态。
+- **掌控数据** — SQLite 本地存储、每日和手动备份、JSON 交易导出；支持本地 MCP 接入，默认只读。
+- **跨设备访问** — 桌面浏览器、手机 PWA 和 Android APK 连接同一个自托管实例。
 
 ## 快速开始
 
-需要 Python 3.11–3.13。建议使用独立虚拟环境。
+需要 [Docker 和 Docker Compose](https://docs.docker.com/get-docker/)。在终端执行：
 
 ```bash
 git clone https://github.com/zuquanzhi/Accufolio.git
 cd Accufolio
-python -m venv .venv
-source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-export ACCUFOLIO_PASSWORD='设置你自己的长密码'
-# PowerShell: $env:ACCUFOLIO_PASSWORD='设置你自己的长密码'
-uvicorn apps.api.main:app --host 127.0.0.1 --port 8000
-```
-
-访问 `http://127.0.0.1:8000`。浏览器弹出的登录框中，默认用户名是 `admin`，密码是上面设置的值。没有默认密码。应用使用 HTTP Basic 认证，远程访问必须使用 HTTPS。仅运行一个 Uvicorn worker，避免重复启动后台任务。
-
-| 环境变量 | 默认值 | 用途 |
-|---|---|---|
-| `ACCUFOLIO_PASSWORD` | 必填 | 浏览器/API 密码 |
-| `ACCUFOLIO_USER` | `admin` | 登录用户名 |
-| `ACCUFOLIO_DB` | `data/accufolio.db` | 数据库位置 |
-| `ACCUFOLIO_SCAN_INTERVAL` | `300` | 扫描间隔秒数，最少 60 |
-| `ACCUFOLIO_MCP_SCOPE` | `read` | MCP 本地进程权限，可设为 `write` |
-
-依赖版本固定在 `requirements.txt`。数据库会自动创建；首次启动会初始化表结构，不会导入历史种子数据。
-
-## Docker 与 HTTPS
-
-```bash
 cp .env.example .env
-# 编辑 .env 设置密码
+# 编辑 .env，设置唯一且足够强的 ACCUFOLIO_PASSWORD
 docker compose up -d --build
 ```
 
-容器以非 root 用户运行，端口默认只绑定 `127.0.0.1:8000`；数据库保存在 `accufolio_data` 卷。若你已有 HTTPS 反向代理，将它指向此端口即可。
+打开 <http://127.0.0.1:8000>，使用默认用户名 `admin` 和刚设置的密码登录。没有默认密码。容器默认只监听本机，数据库保存在 Docker 卷中。
 
-也可在 `.env` 设置 `ACCUFOLIO_DOMAIN=你的域名`，将域名 DNS 指向服务器并开放 80/443，再启动 Caddy 自动申请证书：
+也可以使用 Python 3.11–3.13 运行。远程访问和手机连接需要先配置 HTTPS；完整步骤、环境变量、升级及备份恢复请参阅 **[使用与部署指南](guides/使用与部署.md)**。
 
-```bash
-docker compose -f compose.yml -f compose.https.yml up -d --build
+## 手机使用
+
+| 方式 | 适用情况 | 开始使用 |
+|---|---|---|
+| **Android APK** | Android 10 及以上 | 从 [最新 Release](https://github.com/zuquanzhi/Accufolio/releases/latest) 的 Assets 下载 `.apk`，安装后输入自托管实例的 HTTPS 根地址。 |
+| **PWA** | Android 或 iOS 浏览器 | 打开 HTTPS 站点，通过浏览器菜单安装或添加到主屏幕。 |
+
+APK 和 PWA 均需先部署服务器；APK 不内置后端。服务器更新后，网页功能会自动检测并加载；有未保存输入时会先提示。Android 原生客户端本身更新仍需安装新版 APK。Release 中的源码 ZIP 用于部署和开发，并非手机安装包；同时提供 SHA-256 校验文件。
+
+## 工作原理
+
+```text
+浏览器 / PWA / Android 客户端
+              │ HTTPS
+              ▼
+       FastAPI + Web 界面 ── 行情提供方
+              │
+        SQLite 数据库与备份
+              ▲
+       本地 MCP 客户端（可选）
 ```
 
-## Android APK 下载与安装
+应用使用 HTTP Basic 认证，公开网络访问时必须通过 HTTPS；请保护好密码和数据库备份。MCP 以本地进程运行，默认只读，写入需要显式开启。更多说明见[部署与 MCP 指南](guides/使用与部署.md)。
 
-在 [最新 Release](https://github.com/zuquanzhi/Accufolio/releases/latest) 的 **Assets** 中下载 `Accufolio-1.1.0.apk`，不要下载源码 ZIP。支持 Android 10 及以上。按系统提示允许当前下载来源安装应用，安装后输入你部署的 Accufolio **HTTPS 根地址**并登录。
+## 适用范围
 
-APK 是连接自托管服务器的 Android 客户端，**不内置服务器或示例账户**，需要先按上文部署后端。只允许连接指定的 HTTPS 站点，不允许明文 HTTP 或无效证书。用户名、密码仅用于当前会话，不由客户端写入磁盘。交易导出文件保存在手机「下载」目录。
+当前版本专注单用户、USD 买入账本，不连接券商或执行交易。卖出、分红、手续费、多币种、券商同步和外部通知暂不支持。行情依赖第三方，可能延迟或不可用；回测忽略费用、税费和分红，历史表现不代表未来收益。
 
-服务器发布新的网页功能后，客户端会自动检测更新并保护未保存的表单；无需重新下载安装。Android 原生壳本身发生变更时仍需安装新版 APK，不能绕过 Android 的安装确认。正式 APK 使用同一个发布密钥签名，后续版本支持覆盖安装。
-
-构建环境：JDK 17、Gradle 8.11.1、Android SDK 35。`gradle -p apps/mobile testDebugUnitTest lintDebug assembleDebug` 可构建测试包。正式发布使用 GitHub Secrets 中的 `ANDROID_KEYSTORE_BASE64` 和 `ANDROID_KEYSTORE_PASSWORD`，私钥不进入源码或 Release。
-
-## PWA 安装和升级
-
-用 Android Chrome 或 iOS Safari 打开你的 **HTTPS** 站点，选择「安装应用」/「添加到主屏幕」。这是联网使用的 PWA，**不是原生 APK**。服务器部署新版本后，手机会检测并加载新网页，无需重新下载安装包。首次安装入口取决于系统和浏览器；已完成浏览器回归；实体手机兼容性仍需实际设备验证。
-
-服务端升级仍由部署者操作：先备份，再 `git pull --ff-only`，然后 `docker compose up -d --build`。Python 运行方式需重新安装依赖并重启服务。不要使用 `docker compose down -v`，它会删除数据卷。
-
-## 备份与恢复
-
-后台每天启动一次 SQLite 在线备份，保存到数据库旁的 `backups/`；系统面板也可手动创建备份。自动备份与原库在同一磁盘，建议将备份复制到独立存储。当前不自动清理旧备份，请监测磁盘空间。
-
-恢复时先停止应用，将选定备份复制为配置的数据库文件，保留原文件副本，再启动应用。JSON 导出用于查看与迁移交易，不包含审计和监控数据；完整恢复请使用 `.db` 备份。
-
-## MCP 接入
-
-桌面客户端启动 `scripts/mcp_server.py`。路径需使用你机器上的绝对路径，例如 Windows：
-
-```json
-{
-  "mcpServers": {
-    "accufolio": {
-      "command": "D:/program/Accufolio/.venv/Scripts/python.exe",
-      "args": ["D:/program/Accufolio/scripts/mcp_server.py"],
-      "env": {
-        "ACCUFOLIO_DB": "D:/program/Accufolio/data/accufolio.db",
-        "ACCUFOLIO_MCP_SCOPE": "read"
-      }
-    }
-  }
-}
-```
-
-本地进程以启动用户的系统权限访问数据库。改为 `write` 才能写入。交易写工具默认 `dry_run=true`，提交需设置为 `false`；每次新操作用一个唯一 `idempotency_key`，重试同一操作保留该键。相同键搭配不同数据会拒绝。不要将本地 stdio 服务直接代理到公网；v1 不提供远程 MCP。
-
-## 回测口径
-
-输入每行 `YYYY-MM-DD,收盘价`，日期必须严格递增，每月第一条数据代表该月投入时点。支持碎股，忽略手续费、税费、现金利息和分红；输入数据是否复权由提供者负责。
-
-固定月投花完当月现金；季度投入在 1/4/7/10 月首条数据买入；等待回撤在近 20 条价格回撤达到 5% 时投入一半现金，冷却 5 条数据；定投加码每月先投 2/3，达到 5%/8.75% 回撤时从现金池加码。所有策略期末资产包含未投入现金。最大回撤是**标的收盘价**回撤，不是受入金影响的账户资产回撤。历史结果不代表未来收益。
-
-## 验证与发布
+## 开发与验证
 
 ```bash
+python -m venv .venv
+# macOS / Linux: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 python -m unittest discover -s tests -v
-pip install playwright==1.65.1
-python -m playwright install chromium  # Windows 本机测试使用已有 Edge
-python scripts/browser_smoke.py
 ```
 
-Actions 验证 Python 3.11/3.12/3.13、Chromium 浏览器流程、Docker 启动、Android 单元测试与 lint，并在 Android 15 模拟器安装、启动 APK 和验证服务器地址输入。推送 `v*` 标签时会重新运行完整验证，成功后创建 Release，附签名 APK、源码 ZIP 和 SHA-256 校验文件。
+CI 覆盖 Python 测试、浏览器流程、Docker 启动和 Android 测试；发布工作流验证通过后生成签名 APK、源码包及校验文件。浏览器回归、Android 构建、回测口径和贡献运行方式见[指南](guides/使用与部署.md)。欢迎通过 [Issues](https://github.com/zuquanzhi/Accufolio/issues) 反馈问题或提出建议。
 
-## 范围
+## 许可证
 
-v1 专注单用户、USD 买入记账，不执行交易下单。暂不支持卖出、分红、手续费、多币种、券商同步、外部推送和远程 MCP；手机号/邮箱等不需要填写。实时行情来自第三方，可能延迟、受限或不可用。历史参考材料留在本地，未纳入发布。
-
-`apps/api`：FastAPI；`apps/web`：响应式 Web/PWA；`packages/core`：纯计算；`packages/providers`：行情；`packages/mcp`：MCP；`tests`：单元与接口测试；`scripts/browser_smoke.py`：浏览器回归。
+[Apache License 2.0](LICENSE)

@@ -78,6 +78,7 @@ jobs:
         with:
           name: android-test-results
           path: |
+            work/android-welcome.png
             work/android-onboarding.png
             apps/mobile/app/build/reports/
       - name: Remove temporary signing key
