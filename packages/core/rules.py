@@ -9,6 +9,10 @@ def calm_signal(price: float, closes: list[float], vix: float, vix_peak: float) 
     return vix / peak <= .75 and price / max(closes[-20:]) <= .92
 
 def movement_level(change_percent: float, threshold: float = 2.0) -> int:
+    """Return 0 below the threshold, then L1/L2/L3 at 1x/2x/3x."""
     if not isfinite(change_percent) or not isfinite(threshold) or threshold <= 0:
         raise ValueError('finite change and positive threshold required')
-    return 1 if abs(change_percent) >= threshold else 0
+    for level in (3, 2, 1):
+        if abs(change_percent) >= threshold * level:
+            return level
+    return 0

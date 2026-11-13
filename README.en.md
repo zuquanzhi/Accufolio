@@ -22,6 +22,7 @@ Accufolio is a single-user, self-hosted app for long-term investors. Record buys
 <details>
 <summary>More views: backtesting, monitoring, mobile trades, and Android welcome screen</summary>
 <br>
+<img src="assets/previews/mobile-pages.jpg" alt="Four app routes" width="1000">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/web-monitoring.png" alt="Price monitoring" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
@@ -35,8 +36,9 @@ The device frames are illustrative; the screenshots show the running application
 
 - **Investment journal:** manage buys and sells via MCP, with an audit trail and undo for changes.
 - **Portfolio overview:** review holding cost, shares, average cost, market value, profit and loss, and XIRR.
-- **Strategy comparisons:** provide daily closing prices to compare four contribution strategies, including ending value, return, and the underlying price's maximum drawdown.
-- **Price monitoring:** follow US securities with Sina quotes, set change thresholds, and see in-app alerts and data-source status.
+- **Strategy comparisons:** select a symbol and date range to fetch cached daily prices and compare four contribution strategies. Manual data remains available; source and adjustment details are visible.
+- **Price monitoring:** L1/L2/L3 movement alerts and a calm signal based on aligned stock and VIX closes. Missing or stale signal data is explicitly skipped.
+- **External alerts:** optional JSON Webhooks with a persistent outbox, retries, and delivery status.
 - **Your data:** SQLite storage, daily and manual database backups, JSON trade export, and optional local MCP access that defaults to read-only.
 - **Multiple devices:** access one self-hosted instance from desktop browsers, a mobile PWA, or the Android app.
 
@@ -64,7 +66,7 @@ The [deployment and usage guide](guides/使用与部署.md) contains environment
 
 ## Mobile access
 
-Four independent document routes organize the app: `/assets`, `/records`, `/discover`, and `/settings`. Each can be opened directly, refreshed, and navigated back to. Account selection, refresh, and Android connection/update controls live in Settings. The server-backed portfolio is read-only in the interface; the separate on-device journal supports manual entries.
+Four routes organize the app: `/assets`, `/records`, `/discover`, and `/settings`. In-app navigation keeps the document and connection alive, preserving scroll position and drafts. Each route also supports direct loading and refresh. Account selection, refresh, and Android connection/update controls live in Settings. The server-backed portfolio is read-only in the interface; the separate on-device journal supports manual entries.
 
 
 | Option | Requirements | Getting started |
@@ -91,7 +93,7 @@ The application uses HTTP Basic authentication. Use HTTPS for remote access and 
 
 ## Scope and limitations
 
-The current release focuses on a single-user, USD buy/sell ledger. It does not connect to a broker or place orders. Dividends, fees, multiple currencies, broker sync, external notifications, and remote MCP are not supported. Quotes depend on a third party and may be delayed or unavailable. Backtests exclude costs, taxes, and dividends; historical results do not guarantee future returns.
+The current release focuses on a single-user, USD buy/sell ledger. It does not connect to a broker or place orders. Dividends, fees, multiple currencies, broker sync, and remote MCP are not supported. Sina daily closes are unadjusted: splits can distort results and dividends are not reinvested. Stale data is visibly flagged. Webhooks use generic JSON and require a compatible receiver or adapter; set `ACCUFOLIO_WEBHOOK_URL` and optionally `ACCUFOLIO_WEBHOOK_TOKEN` in the deployment environment. Quotes may be delayed or unavailable; historical results do not guarantee future returns. Planned work and exclusions are tracked in the [roadmap](guides/roadmap.md).
 
 ## Development
 

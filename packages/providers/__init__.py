@@ -47,3 +47,6 @@ def get_quote(symbol: str, providers: tuple[Callable[[str], Quote], ...] = (sina
         except Exception as exc:
             errors.append(f'{getattr(provider, "__name__", "provider")}: {type(exc).__name__}: {exc}')
     return QuoteResult(None, True, tuple(errors) or ('no providers configured',))
+
+# Daily history uses a separately tested, bounded JSON parser.
+from .history import sina_daily

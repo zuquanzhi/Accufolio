@@ -23,6 +23,7 @@ api.date=PreviewDate
 quote=lambda symbol: QuoteResult(Quote(symbol,204.75,0.84,'demo',1794528000),False,())
 api.get_quote=quote
 monitoring.get_quote=quote
+monitoring.evaluate_calm=lambda symbol: {'status':'skipped','reason':'示例数据，不计算退潮信号'}
 uvicorn.run(api.app,host='127.0.0.1',port=int(__import__('os').environ['PREVIEW_PORT']),log_level='warning')
 '''
 
@@ -30,7 +31,7 @@ def main():
     OUT.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory() as temp:
         sock=socket.socket();sock.bind(('127.0.0.1',0));port=sock.getsockname()[1];sock.close()
-        env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preview-only','ACCUFOLIO_DB':str(Path(temp)/'demo.db'),'PREVIEW_PORT':str(port)}
+        env={**os.environ,'ACCUFOLIO_WEBHOOK_URL':'','ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preview-only','ACCUFOLIO_DB':str(Path(temp)/'demo.db'),'PREVIEW_PORT':str(port)}
         process=subprocess.Popen([sys.executable,'-c',DEMO_SERVER],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         base=f'http://127.0.0.1:{port}'
         def api(path,data,method='POST'):
@@ -51,19 +52,30 @@ def main():
                 page=context.new_page();page.emulate_media(reduced_motion='reduce');page.goto(base);expect(page.locator('#value')).to_have_text('$1,842.75')
                 page.evaluate("const label=document.querySelector('header small');if(label)label.textContent='长期投资，从容积累 · 示例数据'")
                 page.screenshot(path=str(OUT/'web-overview.png'))
-                bars='\n'.join(f'2025-{i:02d}-03,{price}' for i,price in enumerate([100,104,97,90,95,103,109,106,115,120,118,130],1))
+                page.set_viewport_size({'width':1440,'height':1500})
+                bars=[{'day':f'2025-{i:02d}-03','close':price} for i,price in enumerate([100,104,97,90,95,103,109,106,115,120,118,130],1)]
+                page.route('**/api/history?*',lambda route:route.fulfill(json={'symbol':'QQQM','bars':bars,'source':'demo','cached':False,'stale':False,'adjustment':'unadjusted','adjustment_note':'示例数据 · 未复权','errors':[]}))
                 page.locator("a[data-view='discover']").click()
-                page.locator('#backtest [name=bars]').fill(bars);page.locator('#backtest button').click()
+                page.locator('#backtest [name=start]').fill('2025-01-01')
+                page.locator('#backtest [name=end]').fill('2025-12-31')
+                page.locator('#run-history').click()
                 expect(page.locator('#backtest-result')).to_contain_text('固定月投')
                 page.locator('#backtest-panel').screenshot(path=str(OUT/'web-backtest.png'))
                 page.locator("button[data-discover='monitoring']").click()
+                expect(page.locator('#watch-items')).to_contain_text('QQQM')
+                expect(page.locator('#notification-status')).not_to_contain_text('正在读取')
                 page.locator('#monitoring').screenshot(path=str(OUT/'web-monitoring.png'))
                 page.locator("a[data-view='assets']").click()
                 page.set_viewport_size({'width':390,'height':844});page.evaluate('scrollTo(0,0)');page.wait_for_timeout(400)
                 page.screenshot(path=str(OUT/'mobile-overview.png'))
                 page.locator("a[data-view='records']").click();page.wait_for_timeout(200)
                 page.screenshot(path=str(OUT/'mobile-trades.png'))
+                page.locator("a[data-view='discover']").click()
+                page.locator("button[data-discover='backtest']").click()
+                page.evaluate('scrollTo(0,0)')
+                page.screenshot(path=str(OUT/'mobile-discover.png'))
                 page.locator("a[data-view='settings']").click()
+                page.evaluate('scrollTo(0,0)')
                 page.screenshot(path=str(OUT/'mobile-settings.png'))
                 browser.close()
             print('Captured desktop and mobile previews using synthetic data in an isolated database.')

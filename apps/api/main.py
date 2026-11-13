@@ -228,6 +228,8 @@ def summary(symbol: str = 'QQQM', actor: str = Depends(authorize)):
 
 from apps.api.extended import router
 app.include_router(router)
+from apps.api.history import router as history_router
+app.include_router(history_router)
 
 PAGES = {'assets': '资产', 'records': '记录', 'discover': '发现', 'settings': '设置'}
 
@@ -247,6 +249,10 @@ def page(request: Request, actor: str = Depends(authorize)):
     for key in PAGES:
         html = html.replace('{{current-' + key + '}}', 'aria-current="page"' if key == name else '')
     return HTMLResponse(html, headers={'Cache-Control': 'no-store'})
+
+@app.get('/api/ui/pages')
+def page_fragments(actor: str = Depends(authorize)):
+    return {name: (WEB / 'pages' / (name + '.html')).read_text(encoding='utf-8-sig') for name in PAGES}
 
 @app.get('/pages/{filename}')
 def page_script(filename: str):

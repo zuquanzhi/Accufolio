@@ -5,6 +5,7 @@ run APK: serve the actual FastAPI app and drive the original MainActivity by tou
 No fixtures, CA, alternate WebViewClient, or relaxed TLS policy enter the release APK.
 """
 import os
+import json
 import re
 import shutil
 import ssl
@@ -54,7 +55,7 @@ def serve():
         response = await call_next(request)
         if request.url.path in ('/assets', '/records', '/discover', '/settings') and response.status_code == 200:
             with NAV.open('a', encoding='utf-8') as stream:
-                stream.write(request.url.path + '\n')
+                stream.write(json.dumps({'path':request.url.path,'destination':request.headers.get('sec-fetch-dest','')}) + '\n')
         return response
 
     uvicorn.run(api.app, host='0.0.0.0', port=PORT, ssl_keyfile=str(KEY), ssl_certfile=str(CERT), log_level='warning')
@@ -65,8 +66,21 @@ def adb(*args):
 
 
 def screen():
-    adb('shell', 'uiautomator', 'dump', '/sdcard/accufolio-ui.xml')
-    return ET.fromstring(adb('shell', 'cat', '/sdcard/accufolio-ui.xml'))
+    # A failed dump can leave the previous XML on the device. Never treat that as current UI.
+    last_error = None
+    for _ in range(3):
+        try:
+            adb('shell', 'rm', '-f', '/sdcard/accufolio-ui.xml')
+            result = adb('shell', 'uiautomator', 'dump', '/sdcard/accufolio-ui.xml')
+            if 'dumped' not in result.lower():
+                raise RuntimeError('No fresh UI hierarchy: '+result.strip())
+            tree = ET.fromstring(adb('shell', 'cat', '/sdcard/accufolio-ui.xml'))
+            if not list(tree.iter('node')):
+                raise RuntimeError('Empty UI hierarchy')
+            return tree
+        except (subprocess.CalledProcessError, ET.ParseError, RuntimeError) as error:
+            last_error=error;time.sleep(.4)
+    raise RuntimeError('UI hierarchy unavailable') from last_error
 
 
 def text(node):
@@ -99,19 +113,39 @@ def capture(filename):
         subprocess.run(['adb', 'exec-out', 'screencap', '-p'], stdout=stream, check=True)
 
 
-def routes():
-    return NAV.read_text(encoding='utf-8').splitlines() if NAV.exists() else []
+def document_requests():
+    entries = [json.loads(line) for line in NAV.read_text(encoding='utf-8').splitlines()] if NAV.exists() else []
+    return [entry['path'] for entry in entries if entry['destination']=='document']
 
 
-def wait_route(route, start):
-    for _ in range(50):
-        if route in routes()[start:]:
-            time.sleep(.7)
-            ui = screen()
-            assert '应用设置' not in items(ui), items(ui)
-            return ui
-        time.sleep(.2)
-    raise AssertionError(('No actual HTTP navigation', route, routes()[start:], items(screen())))
+def wait_ui(predicate, description, reject_login=False, timeout=50):
+    deadline=time.monotonic()+timeout
+    last=[]
+    while time.monotonic()<deadline:
+        try:
+            ui=screen();last=items(ui)
+            if reject_login and any(item.startswith('登录 ') for item in last):
+                raise AssertionError(('Unexpected repeat authentication',last))
+            if predicate(ui):return ui
+        except RuntimeError:
+            pass
+        time.sleep(.3)
+    raise AssertionError(('UI not ready',description,last))
+
+
+def wait_page(route):
+    distinctive={'/assets':'持仓市值','/records':'投资中的每一步','/discover':'策略实验室','/settings':'记录方式'}[route]
+    def ready(ui):
+        values=items(ui)
+        return all(label in values for label in ['资产','记录','发现','设置']) and any(distinctive in item for item in values)
+    ui=wait_ui(ready,route,reject_login=True)
+    for unexpected in ['应用设置','正在连接…','修改连接','重试']:
+        assert unexpected not in items(ui),('Unexpected native footer',unexpected,items(ui))
+    return ui
+
+
+def wait_native(value):
+    return wait_ui(lambda ui:value in items(ui),value,reject_login=True,timeout=20)
 
 
 def scroll_to(value):
@@ -134,7 +168,7 @@ def run(apk):
     NAV.write_text('', encoding='utf-8')
     with tempfile.TemporaryDirectory() as temp, (WORK/'server.log').open('w', encoding='utf-8') as log:
         env = {**os.environ, 'PYTHONPATH': str(ROOT), 'ACCUFOLIO_DB': str(Path(temp)/'integration.db'),
-               'ACCUFOLIO_USER': 'admin', 'ACCUFOLIO_PASSWORD': 'android-integration-test'}
+               'ACCUFOLIO_WEBHOOK_URL': '', 'ACCUFOLIO_USER': 'admin', 'ACCUFOLIO_PASSWORD': 'android-integration-test'}
         server = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'serve'], cwd=ROOT, env=env, stdout=log, stderr=log)
         try:
             context = ssl.create_default_context(cafile=str(CERT))
@@ -157,34 +191,42 @@ def run(apk):
             adb('shell', 'input', 'text', f'https://10.0.2.2:{PORT}')
             adb('shell', 'input', 'keyevent', '4')
             tap(named(screen(), '连接'))
-            for _ in range(20):
-                ui = screen()
-                if '登录' in items(ui):
-                    break
-                time.sleep(.3)
+            ui=wait_ui(lambda tree:'登录' in items(tree),'initial authentication')
             password = [n for n in ui.iter('node') if n.attrib.get('class') == 'android.widget.EditText'][-1]
             tap(password);adb('shell', 'input', 'text', 'android-integration-test')
+            adb('shell','input','keyevent','4')
             tap(named(screen(), '登录'))
-            ui = wait_route('/assets', 0)
+            # The initial dialog may take a frame to dismiss; then any further prompt is a regression.
+            wait_ui(lambda tree:not any(item.startswith('登录 ') for item in items(tree)),'login dismissal')
+            ui = wait_page('/assets')
+            initial_documents=document_requests()
+            assert initial_documents==['/assets'],initial_documents
             capture('android-assets.png')
             for label, route in [('记录','/records'),('发现','/discover'),('设置','/settings')]:
-                start = len(routes());tap(named(ui, label));ui = wait_route(route, start)
+                tap(named(ui,label));ui=wait_page(route)
+                assert document_requests()==initial_documents,('Tab reloaded the document',route,document_requests())
             capture('android-settings-page.png')
             # These taps are real input events, exercising MainActivity's origin/frame/gesture checks.
-            tap(scroll_to('连接地址'));ui=screen()
+            tap(scroll_to('连接地址'));ui=wait_ui(lambda tree:any(n.attrib.get('class')=='android.widget.EditText' for n in tree.iter('node')),'connection dialog',reject_login=True)
             assert '连接地址' in items(ui), items(ui)
             assert any(n.attrib.get('class') == 'android.widget.EditText' for n in ui.iter('node')), items(ui)
             capture('android-connection.png')
             tap(named(ui, '取消'))
-            tap(scroll_to('重新载入页面'));ui=screen()
+            tap(scroll_to('重新载入页面'));ui=wait_native('重新载入页面？')
             assert '重新载入页面？' in items(ui), items(ui)
             assert any('已保存的记录不受影响' in item for item in items(ui)), items(ui)
             tap(named(ui, '取消'))
-            # Real browser history returns through previously fetched documents, without a second native bar.
-            start=len(routes());tap(named(screen(), '资产'));wait_route('/assets',start)
-            adb('shell', 'input', 'keyevent', '4');time.sleep(1)
-            assert '应用设置' not in items(screen()), items(screen())
-            print('Android real HTTPS pages passed: assets/records/discover/settings, no duplicate native bar, connection and reload actions by touch.')
+            # Cached pages and native Back use the same document, connection and authenticated session.
+            tap(named(screen(),'资产'));wait_page('/assets')
+            adb('shell','input','keyevent','4');wait_page('/settings')
+            assert document_requests()==initial_documents,('History reloaded the document',document_requests())
+            print('Android real HTTPS navigation passed: four screens, one document, one login, no duplicate bar, direct connection/reload actions.')
+        except BaseException:
+            try:
+                capture('android-integration-failure.png')
+                (WORK/'failure-ui.xml').write_text(ET.tostring(screen(),encoding='unicode'),encoding='utf-8')
+            except Exception:pass
+            raise
         finally:
             server.terminate();server.wait(timeout=15)
 

@@ -19,8 +19,8 @@
 <a href="accufolio://settings" hidden aria-hidden="true" tabindex="-1"></a>
 <main id="portfolio">
   <div id="notice" role="status" aria-live="polite"></div>
-<!--PAGE-->
+<div id="page-root" data-page="{{page}}"><!--PAGE--></div>
 </main>
 <nav class="tab-bar" aria-label="主导航"><a data-view="assets" href="/assets" {{current-assets}}><svg class="icon"><use href="#icon-assets"/></svg><span>资产</span></a><a data-view="records" href="/records" {{current-records}}><svg class="icon"><use href="#icon-records"/></svg><span>记录</span></a><a data-view="discover" href="/discover" {{current-discover}}><svg class="icon"><use href="#icon-discover"/></svg><span>发现</span></a><a data-view="settings" href="/settings" {{current-settings}}><svg class="icon"><use href="#icon-settings"/></svg><span>设置</span></a></nav>
 
-<script src="/app.js" defer></script><script src="/pages/{{page}}.js" defer></script></body></html>
+<script src="/app.js" defer></script><script src="/pages/assets.js" defer></script><script src="/pages/records.js" defer></script><script src="/pages/discover.js" defer></script><script src="/pages/settings.js" defer></script></body></html>

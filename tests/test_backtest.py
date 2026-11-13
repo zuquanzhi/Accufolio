@@ -28,3 +28,9 @@ class RuleTests(unittest.TestCase):
     def test_move(self):
         self.assertEqual(movement_level(-2), 1)
         self.assertEqual(movement_level(1.9), 0)
+        self.assertEqual(movement_level(4), 2)
+        self.assertEqual(movement_level(-6), 3)
+        self.assertEqual(movement_level(100), 3)
+        self.assertEqual(movement_level(1.5, .5), 3)
+        with self.assertRaises(ValueError): movement_level(float('nan'))
+        with self.assertRaises(ValueError): movement_level(1, 0)

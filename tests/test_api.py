@@ -77,6 +77,12 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(('id="view-'+other+'"') in response.text, other == name)
             self.assertIn('src="/pages/'+name+'.js"', response.text)
             self.assertEqual(self.client.get('/pages/'+name+'.js').status_code, 200)
+        self.assertEqual(self.client.get('/api/ui/pages').status_code, 401)
+        fragments = self.client.get('/api/ui/pages', auth=self.auth).json()
+        self.assertEqual(set(fragments), {'assets', 'records', 'discover', 'settings'})
+        for name, html in fragments.items():
+            self.assertEqual(html.count('class="app-view"'), 1)
+            self.assertIn('id="view-'+name+'"', html)
         for path in ['/pages/assets.html', '/pages/unknown.js', '/pages/../main.py']:
             self.assertEqual(self.client.get(path).status_code, 404)
 
@@ -102,8 +108,20 @@ class ApiTests(unittest.TestCase):
         from packages.providers import Quote
         h={'X-Accufolio':'1'}
         self.assertEqual(self.client.put('/api/watchlist',auth=self.auth,headers=h,json={'symbol':'QQQM','threshold':2}).status_code,200)
-        with patch('apps.api.extended.get_quote',return_value=QuoteResult(Quote('QQQM',100,-3,'test',0),False,())):
+        with patch('apps.api.extended.get_quote',return_value=QuoteResult(Quote('QQQM',100,-3,'test',0),False,())), patch('apps.api.extended.evaluate_calm',return_value={'status':'skipped','reason':'fixture'}), patch('packages.notifications.send_webhook',return_value=204):
             for _ in range(2): self.client.post('/api/scan',auth=self.auth,headers=h)
         self.assertEqual(len(self.client.get('/api/alerts',auth=self.auth).json()),1)
         self.assertEqual(self.client.get('/api/daily',auth=self.auth).json()[0]['scans'],2)
         self.assertEqual(self.client.get('/api/health',auth=self.auth).json()['database'],'ok')
+
+    def test_notification_and_signal_routes_require_authentication(self):
+        for route in ['/api/signals', '/api/notifications/status']:
+            self.assertEqual(self.client.get(route).status_code, 401)
+        self.assertEqual(self.client.post('/api/notifications/retry', auth=self.auth).status_code, 403)
+        with patch.dict(os.environ, {'ACCUFOLIO_WEBHOOK_URL': '', 'ACCUFOLIO_WEBHOOK_TOKEN': ''}), patch('packages.notifications.send_webhook') as send:
+            self.assertFalse(self.client.get('/api/notifications/status', auth=self.auth).json()['configured'])
+            response = self.client.post('/api/notifications/retry', auth=self.auth, headers={'X-Accufolio': '1'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['requeued'], 0)
+            self.assertEqual(self.client.get('/api/signals', auth=self.auth).json(), [])
+            send.assert_not_called()

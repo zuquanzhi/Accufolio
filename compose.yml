@@ -8,6 +8,8 @@ services:
       ACCUFOLIO_USER: ${ACCUFOLIO_USER:-admin}
       ACCUFOLIO_PASSWORD: ${ACCUFOLIO_PASSWORD:?Set ACCUFOLIO_PASSWORD in .env}
       ACCUFOLIO_DB: /data/accufolio.db
+      ACCUFOLIO_WEBHOOK_URL: ${ACCUFOLIO_WEBHOOK_URL:-}
+      ACCUFOLIO_WEBHOOK_TOKEN: ${ACCUFOLIO_WEBHOOK_TOKEN:-}
     volumes:
       - accufolio_data:/data
 volumes:

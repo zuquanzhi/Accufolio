@@ -41,6 +41,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class MainActivity extends Activity {
     private int INK = Color.rgb(28,34,48), MUTED = Color.rgb(103,113,131);
@@ -50,8 +51,13 @@ public class MainActivity extends Activity {
     private TextView status;
     private Button recoveryAddress, recoveryRetry;
     private String origin, authorization, mainDocument;
+    private String authHost, authRealm, authUser, authPassword;
     private boolean pageFailed;
-    private final List<HttpAuthHandler> pendingAuth = new ArrayList<>();
+    private static final class AuthChallenge {
+        final HttpAuthHandler handler; final String host, realm;
+        AuthChallenge(HttpAuthHandler handler,String host,String realm){this.handler=handler;this.host=host;this.realm=realm;}
+    }
+    private final List<AuthChallenge> pendingAuth = new ArrayList<>();
     private AlertDialog loginDialog;
 
     @Override public void onCreate(Bundle state) {
@@ -126,7 +132,7 @@ public class MainActivity extends Activity {
     }
     private void saveServer(String server){
         getPreferences(MODE_PRIVATE).edit().putString("server",server).apply();
-        authorization=null;WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
+        clearCredentials();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
         CookieManager.getInstance().removeAllCookies(null);
         // Device-local journals remain in WebStorage and are isolated by HTTPS origin.
     }
@@ -210,7 +216,15 @@ public class MainActivity extends Activity {
                 connectionFailed("无法验证站点安全证书。请检查连接地址和证书设置。",mainFrame);
             }
             @Override public void onReceivedHttpAuthRequest(WebView view,HttpAuthHandler handler,String host,String realm){
-                if(!URI.create(origin).getHost().equalsIgnoreCase(host)){handler.cancel();return;}promptLogin(handler);
+                if(!URI.create(origin).getHost().equalsIgnoreCase(host)){handler.cancel();return;}
+                // Reuse only this session's matching credentials, never credentials rejected for this request.
+                boolean reusable=handler.useHttpAuthUsernamePassword();
+                boolean rejected=authUser!=null && !reusable;
+                if(!reusable)clearCredentials();
+                if(reusable && authUser!=null && host.equalsIgnoreCase(authHost) && Objects.equals(realm,authRealm)){
+                    handler.proceed(authUser,authPassword);return;
+                }
+                promptLogin(handler,host,realm,rejected);
             }
         });
         web.setDownloadListener((url,agent,disposition,mime,length)->{
@@ -224,17 +238,18 @@ public class MainActivity extends Activity {
         root.addView(web,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1));root.addView(recovery);mainDocument=origin;web.loadUrl(origin);
     }
 
-    private void promptLogin(HttpAuthHandler handler){
-        pendingAuth.add(handler);if(loginDialog!=null && loginDialog.isShowing())return;
-        LinearLayout form=column(20);EditText user=new EditText(this);user.setSingleLine(true);user.setHint("用户名");user.setText("admin");form.addView(user);
+    private void promptLogin(HttpAuthHandler handler,String host,String realm,boolean rejected){
+        pendingAuth.add(new AuthChallenge(handler,host,realm));if(loginDialog!=null && loginDialog.isShowing())return;
+        LinearLayout form=column(20);if(rejected)form.addView(label("登录信息未被接受，请重新输入。",14,MUTED));EditText user=new EditText(this);user.setSingleLine(true);user.setHint("用户名");user.setText("admin");form.addView(user);
         EditText pass=new EditText(this);pass.setSingleLine(true);pass.setHint("密码");pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);form.addView(pass);
         loginDialog=new AlertDialog.Builder(this).setTitle("登录 "+URI.create(origin).getHost()).setView(form)
-            .setPositiveButton("登录",(dialog,which)->{String username=user.getText().toString(),password=pass.getText().toString();authorization="Basic "+Base64.encodeToString((username+":"+password).getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
-                for(HttpAuthHandler item:pendingAuth)item.proceed(username,password);pendingAuth.clear();})
-            .setNegativeButton("取消",(dialog,which)->{cancelAuth();connectionFailed("尚未登录。你可以重试，或修改连接地址。");})
-            .setOnCancelListener(dialog->{cancelAuth();connectionFailed("尚未登录。你可以重试，或修改连接地址。");}).create();loginDialog.show();
+            .setPositiveButton("登录",(dialog,which)->{String username=user.getText().toString(),password=pass.getText().toString();authHost=host;authRealm=realm;authUser=username;authPassword=password;authorization="Basic "+Base64.encodeToString((username+":"+password).getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+                for(AuthChallenge item:pendingAuth){if(host.equalsIgnoreCase(item.host) && Objects.equals(realm,item.realm))item.handler.proceed(username,password);else item.handler.cancel();}pendingAuth.clear();})
+            .setNegativeButton("取消",(dialog,which)->{cancelAuth();clearCredentials();connectionFailed("尚未登录。你可以重试，或修改连接地址。");})
+            .setOnCancelListener(dialog->{cancelAuth();clearCredentials();connectionFailed("尚未登录。你可以重试，或修改连接地址。");}).create();loginDialog.show();
     }
-    private void cancelAuth(){for(HttpAuthHandler item:pendingAuth)item.cancel();pendingAuth.clear();}
+    private void cancelAuth(){for(AuthChallenge item:pendingAuth)item.handler.cancel();pendingAuth.clear();}
+    private void clearCredentials(){authorization=null;authHost=null;authRealm=null;authUser=null;authPassword=null;}
     @Override protected void onResume(){super.onResume();if(web!=null){web.onResume();web.evaluateJavascript("if(typeof checkVersion==='function'){checkVersion();}",null);}}
     @Override protected void onPause(){if(web!=null)web.onPause();super.onPause();}
     @Override public void onBackPressed(){
@@ -243,5 +258,5 @@ public class MainActivity extends Activity {
         }else navigateBack();
     }
     private void navigateBack(){if(web!=null && web.canGoBack())web.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){cancelAuth();if(loginDialog!=null)loginDialog.dismiss();if(web!=null)web.destroy();authorization=null;WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();super.onDestroy();}
+    @Override protected void onDestroy(){cancelAuth();if(loginDialog!=null)loginDialog.dismiss();if(web!=null)web.destroy();clearCredentials();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();super.onDestroy();}
 }

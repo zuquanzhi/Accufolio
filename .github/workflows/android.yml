@@ -88,6 +88,8 @@ jobs:
         with:
           name: android-test-results
           path: |
+            work/android-integration-failure.png
+            work/android-integration/failure-ui.xml
             work/android-recovery.png
             work/android-assets.png
             work/android-settings-page.png

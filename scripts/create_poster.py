@@ -23,3 +23,14 @@ px,py=1382,504; pw=282; ph=round(pw*844/390);d.rounded_rectangle((px-12,py-13,px
 phone=Image.open(out/'mobile-overview.png').convert('RGBA').resize((pw,ph),Image.Resampling.LANCZOS);mask=Image.new('L',(pw,ph));ImageDraw.Draw(mask).rounded_rectangle((0,0,pw,ph),radius=30,fill=255);img.paste(phone,(px,py),mask);d=ImageDraw.Draw(img);d.rounded_rectangle((px+96,py+9,px+186,py+24),radius=8,fill='#07090c')
 d.text((145,1360),'ACTUAL INTERFACE  /  SYNTHETIC DATA',font=ImageFont.truetype(bold,17),fill='#8190a1')
 img.convert('RGB').save(out/'product-poster.jpg',quality=91,optimize=True)
+
+# Four actual route views, useful for reviewing navigation without a promotional frame.
+page_images=[('mobile-overview.png','/assets'),('mobile-trades.png','/records'),('mobile-discover.png','/discover'),('mobile-settings.png','/settings')]
+if all((out/name).exists() for name,_ in page_images):
+    overview=Image.new('RGB',(1710,960),'#edf0f7')
+    draw=ImageDraw.Draw(overview)
+    for index,(name,route) in enumerate(page_images):
+        left=30+index*420
+        draw.text((left+12,24),route,font=ImageFont.truetype(font,25),fill='#232c41')
+        overview.paste(Image.open(out/name).convert('RGB'),(left,76))
+    overview.save(out/'mobile-pages.jpg',quality=92,optimize=True)
