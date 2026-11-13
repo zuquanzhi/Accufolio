@@ -22,14 +22,15 @@ Accufolio is a single-user, self-hosted app for long-term investors. Record purc
 | <img src="assets/previews/web-overview.png" alt="Accufolio portfolio overview on desktop" width="800"> | <img src="assets/previews/mobile-overview.png" alt="Accufolio portfolio overview on mobile" width="235"> |
 
 <details>
-<summary>More views: backtesting, monitoring, and mobile trades</summary>
+<summary>More views: backtesting, monitoring, mobile trades, and Android welcome screen</summary>
 <br>
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/web-monitoring.png" alt="Price monitoring" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
+<img src="assets/previews/android-welcome.png" alt="Android client server connection welcome screen" width="280">
 </details>
 
-These screenshots show the running application with synthetic transactions and prices in an isolated database. The mobile images show the responsive web interface; the Android client displays the same interface after connecting to a server.
+These screenshots show the running application with synthetic transactions and prices in an isolated database. The mobile images show the responsive web interface; the Android client displays the same interface after connecting to a server; the welcome screen is captured on an Android 15 emulator.
 
 ## Features
 

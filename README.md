@@ -22,14 +22,15 @@ Accufolio 面向长期定投者，提供买入记账、持仓分析、策略回�
 | <img src="assets/previews/web-overview.png" alt="Accufolio 桌面持仓总览" width="800"> | <img src="assets/previews/mobile-overview.png" alt="Accufolio 手机持仓总览" width="235"> |
 
 <details>
-<summary>查看更多：策略回测、行情监控和手机交易记录</summary>
+<summary>查看更多：策略回测、行情监控、手机交易记录和 Android 欢迎页</summary>
 <br>
 <img src="assets/previews/web-backtest.png" alt="策略回测结果" width="800">
 <img src="assets/previews/web-monitoring.png" alt="行情监控" width="800">
 <img src="assets/previews/mobile-trades.png" alt="手机交易记录" width="280">
+<img src="assets/previews/android-welcome.png" alt="Android 客户端连接服务器欢迎页" width="280">
 </details>
 
-预览来自实际运行的界面，使用独立数据库和模拟交易、行情数据；数值仅用于演示。手机图展示响应式网页，Android 客户端连接服务器后展示同一界面。
+预览来自实际运行的界面，使用独立数据库和模拟交易、行情数据；数值仅用于演示。手机图展示响应式网页，Android 客户端连接服务器后展示同一界面；欢迎页来自 Android 15 模拟器。
 
 ## 能做什么
 
