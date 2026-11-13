@@ -45,7 +45,8 @@ async function refresh(){
 }
 $('#refresh').onclick=refresh;
 $('#ledger-mode').value=localStorage.getItem('accufolio.ledger-mode')==='local'?'local':'server';
-$('#ledger-mode').onchange=applyMode;
+let lastMode=mode();
+$('#ledger-mode').onchange=()=>{const form=$('#trade');if(lastMode==='local' && (editingId || form.elements.shares.value || form.elements.price.value || form.elements.note.value) && !confirm('切换账本会清空未保存的本机交易，继续吗？')){$('#ledger-mode').value=lastMode;return}lastMode=mode();applyMode()};
 resetTrade();$('#local-entry').hidden=mode()!=='local';$('#server-hint').hidden=mode()==='local';
 $('#trade').onsubmit=async e=>{e.preventDefault();if(mode()!=='local')return;const f=new FormData(e.target);const data=Object.fromEntries(f);data.symbol=data.symbol.trim().toUpperCase();data.shares=Number(data.shares);data.price=Number(data.price);if(!Number.isFinite(data.shares)||!Number.isFinite(data.price)||data.shares<=0||data.price<=0){$('#notice').textContent='请输入有效的数量和价格';return}try{const rows=readLocal();data.id=editingId||`${Date.now().toString().padStart(16,'0')}-${crypto.randomUUID()}`;const next=editingId?rows.map(x=>x.id===editingId?data:x):[...rows,data];saveLocal(next);$('#symbol').value=data.symbol;resetTrade();await refresh()}catch(err){$('#notice').textContent=err.message}};
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').then(reg=>{reg.update();document.addEventListener('visibilitychange',()=>{if(!document.hidden)reg.update()})}).catch(()=>{});}
