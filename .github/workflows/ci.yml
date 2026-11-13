@@ -44,3 +44,9 @@ jobs:
           done
           docker logs accufolio
           exit 1
+
+  android:
+    uses: ./.github/workflows/android.yml
+    with:
+      sign: ${{ github.event_name == 'push' }}
+    secrets: inherit

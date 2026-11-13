@@ -18,3 +18,8 @@ docs/
 work/
 *.sqlite
 *.sqlite-*
+**/.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore

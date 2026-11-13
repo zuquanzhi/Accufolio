@@ -7,6 +7,7 @@ permissions:
 jobs:
   verify:
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
   release:
     needs: verify
     runs-on: ubuntu-latest
@@ -14,10 +15,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: dist
       - name: Package and publish verified release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git archive --format=zip --prefix=Accufolio/ --output=Accufolio-${GITHUB_REF_NAME}.zip HEAD
-          sha256sum Accufolio-${GITHUB_REF_NAME}.zip > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" "Accufolio-${GITHUB_REF_NAME}.zip" SHA256SUMS --title "Accufolio $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md --verify-tag
+          cp dist/Accufolio-1.1.0.apk .
+          sha256sum Accufolio-${GITHUB_REF_NAME}.zip Accufolio-1.1.0.apk > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" "Accufolio-${GITHUB_REF_NAME}.zip" Accufolio-1.1.0.apk SHA256SUMS --title "Accufolio $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md --verify-tag
