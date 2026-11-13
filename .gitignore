@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+.env
+*.db
+*.db-shm
+*.db-wal
+# Historical seed material stays local until its provenance and licensing are confirmed.
+legacy-dashboard/
+monitor/
+research/
+db/
+docs/
+
+work/
+*.sqlite
+*.sqlite-*

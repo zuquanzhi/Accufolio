@@ -1,0 +1,117 @@
+<div align="center">
+  <img src="assets/logo.png" alt="Accufolio" width="128">
+  <h1>Accufolio</h1>
+  <p>长期投资，从容积累。<br>Own your portfolio. Understand your progress.</p>
+  <p><a href="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zuquanzhi/Accufolio/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/zuquanzhi/Accufolio/releases">Releases</a> · <a href="LICENSE">Apache 2.0</a></p>
+</div>
+
+Accufolio 是面向长期定投者的单用户、自托管投资账本。v1 聚焦买入记录、持仓分析、策略比较、行情监控和 AI 账本管理；支持手机安装为 PWA。数据保存在你自己的 SQLite 数据库中。
+
+## v1 功能
+
+- **持仓账本**：新增、编辑、软删除交易；成本、均价、市值、盈亏和 XIRR。样本不足 90 天不显示年化。
+- **策略实验室**：粘贴日线收盘价，比较固定月投、季度投入、等待回撤和定投加码；同时展示标的区间收益与收盘价最大回撤。
+- **行情监控**：新浪美股报价，失败明确提示；关注列表每 5 分钟扫描，涨跌幅阈值提醒、数据源故障提醒、每日行情摘要。提醒在应用内查看，不发送外部消息。
+- **可撤销的写操作**：持久化审计，支持撤销未被后续修改覆盖的交易操作；提供幂等键防止重复写入。
+- **数据管理**：JSON 交易导出、每日数据库备份、手动备份和健康状态。
+- **MCP**：本地 stdio 服务，默认只读；显式开启写权限后可预览、记账、修改、删除、撤销和配置监控。
+- **手机自动更新**：安装为 PWA 后，每分钟和恢复前台时检查服务端版本。没有未保存内容时自动刷新，有输入时先提示。
+
+## 快速开始
+
+需要 Python 3.11–3.13。建议使用独立虚拟环境。
+
+```bash
+git clone https://github.com/zuquanzhi/Accufolio.git
+cd Accufolio
+python -m venv .venv
+source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+export ACCUFOLIO_PASSWORD='设置你自己的长密码'
+# PowerShell: $env:ACCUFOLIO_PASSWORD='设置你自己的长密码'
+uvicorn apps.api.main:app --host 127.0.0.1 --port 8000
+```
+
+访问 `http://127.0.0.1:8000`。浏览器弹出的登录框中，默认用户名是 `admin`，密码是上面设置的值。没有默认密码。应用使用 HTTP Basic 认证，远程访问必须使用 HTTPS。仅运行一个 Uvicorn worker，避免重复启动后台任务。
+
+| 环境变量 | 默认值 | 用途 |
+|---|---|---|
+| `ACCUFOLIO_PASSWORD` | 必填 | 浏览器/API 密码 |
+| `ACCUFOLIO_USER` | `admin` | 登录用户名 |
+| `ACCUFOLIO_DB` | `data/accufolio.db` | 数据库位置 |
+| `ACCUFOLIO_SCAN_INTERVAL` | `300` | 扫描间隔秒数，最少 60 |
+| `ACCUFOLIO_MCP_SCOPE` | `read` | MCP 本地进程权限，可设为 `write` |
+
+依赖版本固定在 `requirements.txt`。数据库会自动创建；首次启动会初始化表结构，不会导入历史种子数据。
+
+## Docker 与 HTTPS
+
+```bash
+cp .env.example .env
+# 编辑 .env 设置密码
+docker compose up -d --build
+```
+
+容器以非 root 用户运行，端口默认只绑定 `127.0.0.1:8000`；数据库保存在 `accufolio_data` 卷。若你已有 HTTPS 反向代理，将它指向此端口即可。
+
+也可在 `.env` 设置 `ACCUFOLIO_DOMAIN=你的域名`，将域名 DNS 指向服务器并开放 80/443，再启动 Caddy 自动申请证书：
+
+```bash
+docker compose -f compose.yml -f compose.https.yml up -d --build
+```
+
+## 手机安装和升级
+
+用 Android Chrome 或 iOS Safari 打开你的 **HTTPS** 站点，选择「安装应用」/「添加到主屏幕」。这是联网使用的 PWA，**不是原生 APK**。服务器部署新版本后，手机会检测并加载新网页，无需重新下载安装包。首次安装入口取决于系统和浏览器；未进行实体手机兼容性测试。
+
+服务端升级仍由部署者操作：先备份，再 `git pull --ff-only`，然后 `docker compose up -d --build`。Python 运行方式需重新安装依赖并重启服务。不要使用 `docker compose down -v`，它会删除数据卷。
+
+## 备份与恢复
+
+后台每天启动一次 SQLite 在线备份，保存到数据库旁的 `backups/`；系统面板也可手动创建备份。自动备份与原库在同一磁盘，建议将备份复制到独立存储。当前不自动清理旧备份，请监测磁盘空间。
+
+恢复时先停止应用，将选定备份复制为配置的数据库文件，保留原文件副本，再启动应用。JSON 导出用于查看与迁移交易，不包含审计和监控数据；完整恢复请使用 `.db` 备份。
+
+## MCP 接入
+
+桌面客户端启动 `scripts/mcp_server.py`。路径需使用你机器上的绝对路径，例如 Windows：
+
+```json
+{
+  "mcpServers": {
+    "accufolio": {
+      "command": "D:/program/Accufolio/.venv/Scripts/python.exe",
+      "args": ["D:/program/Accufolio/scripts/mcp_server.py"],
+      "env": {
+        "ACCUFOLIO_DB": "D:/program/Accufolio/data/accufolio.db",
+        "ACCUFOLIO_MCP_SCOPE": "read"
+      }
+    }
+  }
+}
+```
+
+本地进程以启动用户的系统权限访问数据库。改为 `write` 才能写入。交易写工具默认 `dry_run=true`，提交需设置为 `false`；每次新操作用一个唯一 `idempotency_key`，重试同一操作保留该键。相同键搭配不同数据会拒绝。不要将本地 stdio 服务直接代理到公网；v1 不提供远程 MCP。
+
+## 回测口径
+
+输入每行 `YYYY-MM-DD,收盘价`，日期必须严格递增，每月第一条数据代表该月投入时点。支持碎股，忽略手续费、税费、现金利息和分红；输入数据是否复权由提供者负责。
+
+固定月投花完当月现金；季度投入在 1/4/7/10 月首条数据买入；等待回撤在近 20 条价格回撤达到 5% 时投入一半现金，冷却 5 条数据；定投加码每月先投 2/3，达到 5%/8.75% 回撤时从现金池加码。所有策略期末资产包含未投入现金。最大回撤是**标的收盘价**回撤，不是受入金影响的账户资产回撤。历史结果不代表未来收益。
+
+## 验证与发布
+
+```bash
+python -m unittest discover -s tests -v
+pip install playwright==1.65.1
+python -m playwright install chromium  # Windows 本机测试使用已有 Edge
+python scripts/browser_smoke.py
+```
+
+Actions 验证 Python 3.11/3.12/3.13、Chromium 浏览器流程和 Docker 启动。推送 `v*` 标签时会重新运行完整验证，成功后创建 Release，附源码 ZIP 和 SHA-256 校验文件。
+
+## 范围
+
+v1 专注单用户、USD 买入记账，不执行交易下单。暂不支持卖出、分红、手续费、多币种、券商同步、外部推送和远程 MCP；手机号/邮箱等不需要填写。实时行情来自第三方，可能延迟、受限或不可用。历史参考材料留在本地，未纳入发布。
+
+`apps/api`：FastAPI；`apps/web`：响应式 Web/PWA；`packages/core`：纯计算；`packages/providers`：行情；`packages/mcp`：MCP；`tests`：单元与接口测试；`scripts/browser_smoke.py`：浏览器回归。

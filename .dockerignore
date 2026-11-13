@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.db
+.env
+work
+legacy-dashboard
+monitor
+research
+docs
+db
+data
+tests

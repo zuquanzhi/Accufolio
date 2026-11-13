@@ -1,0 +1,4 @@
+{$ACCUFOLIO_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy accufolio:8000
+}

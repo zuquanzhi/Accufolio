@@ -1,0 +1,14 @@
+services:
+  accufolio:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ACCUFOLIO_USER: ${ACCUFOLIO_USER:-admin}
+      ACCUFOLIO_PASSWORD: ${ACCUFOLIO_PASSWORD:?Set ACCUFOLIO_PASSWORD in .env}
+      ACCUFOLIO_DB: /data/accufolio.db
+    volumes:
+      - accufolio_data:/data
+volumes:
+  accufolio_data:
