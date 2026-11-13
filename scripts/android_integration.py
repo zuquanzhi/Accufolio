@@ -230,8 +230,11 @@ def run(apk):
             raise
         finally:
             # Close the disposable WebView's keep-alive connections before shutting down HTTPS.
-            subprocess.run(['adb', 'shell', 'am', 'force-stop', 'io.accufolio.app'],
-                           check=False, capture_output=True, timeout=10)
+            try:
+                subprocess.run(['adb', 'shell', 'am', 'force-stop', 'io.accufolio.app'],
+                               check=False, capture_output=True, timeout=10)
+            except (subprocess.TimeoutExpired, OSError):
+                print('Could not close the disposable app; continuing server cleanup.')
             server.terminate()
             try:
                 server.wait(timeout=15)
