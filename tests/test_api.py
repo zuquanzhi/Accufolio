@@ -104,7 +104,7 @@ class ApiTests(unittest.TestCase):
         self.assertTrue((Path(self.tmp.name)/'backups'/backup['filename']).exists())
         exported=self.client.get('/api/export',auth=self.auth).json()
         self.assertEqual(exported['format'],'accufolio-v2')
-        self.assertEqual(set(exported),{'format','exported_at','accounts','cash_entries','trades','fx_rates','settings','allocation_targets'})
+        self.assertEqual(set(exported),{'format','exported_at','accounts','cash_entries','trades','trade_settlements','fx_rates','settings','allocation_targets'})
         self.assertEqual(exported['trades'][0]['account_id'],exported['accounts'][0]['id'])
         self.assertEqual(exported['trades'][0]['price'],100)
         self.assertNotIn('test-password',str(exported))

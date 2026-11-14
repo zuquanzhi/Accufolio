@@ -34,6 +34,7 @@ jobs:
       - run: python scripts/dashboard_smoke.py
       - run: python scripts/accounts_smoke.py
       - run: python scripts/records_smoke.py
+      - run: python scripts/returns_smoke.py
       - run: python scripts/preferences_smoke.py
       - run: python scripts/income_smoke.py
       - run: python scripts/login_smoke.py

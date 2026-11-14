@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS trades(
  strategy TEXT NOT NULL DEFAULT 'manual' CHECK(strategy IN('dca','dip_add','rebalance','manual')),
  note TEXT NOT NULL DEFAULT '',deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN(0,1))
 );
+CREATE TABLE IF NOT EXISTS trade_settlements(
+ trade_id INTEGER PRIMARY KEY REFERENCES trades(id),
+ cash_entry_id INTEGER NOT NULL UNIQUE REFERENCES cash_entries(id),
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS fx_rates(
  base TEXT NOT NULL,quote TEXT NOT NULL,rate_date TEXT NOT NULL,rate REAL NOT NULL CHECK(rate>0),
  source TEXT NOT NULL,fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(base,quote,rate_date)

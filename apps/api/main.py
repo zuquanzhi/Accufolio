@@ -36,7 +36,7 @@ async def lifespan(app):
     # state still distinguishes an interrupted backup from a completed cycle.
     thread.join(timeout=1)
 
-app = FastAPI(title='Accufolio', version='2.2.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='2.3.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -98,7 +98,7 @@ def version(actor: str = Depends(authorize)):
     for path in paths:
         digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '2.2.0'}
+    return {'version': digest.hexdigest(), 'release': '2.3.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
@@ -133,6 +133,8 @@ def mutate_trade(action, trade, trade_id, actor, key=None, dry_run=False):
             row = con.execute('SELECT * FROM trades WHERE id=? AND deleted=0', (trade_id,)).fetchone()
             if row is None: raise HTTPException(404, 'Trade not found')
             before = dict(row)
+            from apps.api.settlements import require_unlinked
+            require_unlinked(con, trade_id=trade_id)
         if action == 'add':
             validate_trade_account(con, data)
             # Never reuse an ID after deletion: old audits must keep identifying the same trade.
@@ -147,6 +149,14 @@ def mutate_trade(action, trade, trade_id, actor, key=None, dry_run=False):
         if dry_run:
             con.rollback()
             return {'preview':{'action':action,'before':before,'after':after}}
+        # Settlement previews bind to the account revision, including its trades.
+        # Moving a trade invalidates previews for both the source and destination.
+        from apps.api.accounts import _stamp
+        affected_accounts = {after['account_id']}
+        if before is not None:
+            affected_accounts.add(before['account_id'])
+        for account_id in sorted(affected_accounts):
+            _stamp(con, account_id)
         audit_id = con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)', (actor, action+'_trade', json.dumps({'id':trade_id, 'before':before, 'after':after}))).lastrowid
         result = {'id':trade_id, 'audit_id':audit_id, 'ok':True}
         if key: con.execute('INSERT INTO requests VALUES(?,?,?)', (key,payload,json.dumps(result)))
@@ -210,9 +220,13 @@ def summary(symbol: str, actor: str = Depends(authorize)):
     symbol = symbol.upper()
     today = et_today()
     with db() as con:
+        con.execute('BEGIN')
         rows = [dict(row) for row in con.execute('SELECT * FROM trades WHERE symbol=? AND deleted=0 AND trade_date<=? ORDER BY trade_date,id', (symbol,today.isoformat()))]
+        cash_entries = [dict(row) for row in con.execute('SELECT * FROM cash_entries ORDER BY entry_date,id')]
+        account_names = {row['id']: row['name'] for row in con.execute('SELECT id,name FROM accounts')}
     quote = get_quote(symbol)
-    result = summarize_account(rows, {symbol:quote.quote.__dict__ if quote.quote else None}, today)
+    result = summarize_account(rows, {symbol:quote.quote.__dict__ if quote.quote else None}, today,
+                               cash_entries=cash_entries, dividend_symbol=symbol)
     totals = result['summary']
     shares = sum(h['shares'] for h in result['holdings'])
     cost = totals['cost']
@@ -223,6 +237,11 @@ def summary(symbol: str, actor: str = Depends(authorize)):
     return {'scope':'single_symbol', 'currency':'USD', 'as_of':today.isoformat(), 'timezone':'America/New_York',
             'symbol': symbol, 'shares': shares, 'cost': cost, 'average_price': cost/shares if shares else None,
             'position': position, 'realized_pnl': totals['realized_pnl'], 'fees':totals['fees'],
+            'cash_dividends': totals['cash_dividends'], 'total_return': totals['total_return'],
+            'dividend_basis': 'net_cash_paid',
+            'dividends_complete': totals['dividends_complete'], 'dividend_issues': result['dividend_issues'],
+            'dividend_breakdown': result['dividend_breakdown'],
+            'account_names': account_names,
             'xirr': totals['xirr'], 'xirr_reason':totals['xirr_reason'], 'quote': quote.quote.__dict__ if quote.quote else None,
             'degraded': quote.degraded, 'errors': quote.errors}
 
@@ -237,6 +256,10 @@ from apps.api.allocation import router as allocation_router
 app.include_router(allocation_router)
 from apps.api.accounts import router as accounts_router
 app.include_router(accounts_router)
+from apps.api.settlements import router as settlements_router
+app.include_router(settlements_router)
+from apps.api.asset_history import router as asset_history_router
+app.include_router(asset_history_router)
 from apps.api.preferences import router as preferences_router
 app.include_router(preferences_router)
 from apps.api.fx import router as fx_router

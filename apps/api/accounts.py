@@ -239,6 +239,8 @@ def reverse_cash_entry(entry_id:int,entry_date:str,expected_revision:int,key:str
         row=con.execute('SELECT * FROM cash_entries WHERE id=?',(entry_id,)).fetchone()
         if row is None:raise HTTPException(404,'Cash entry not found')
         before=dict(row)
+        from apps.api.settlements import require_unlinked
+        require_unlinked(con, cash_entry_id=entry_id)
         if before['transfer_group']:raise ValueError('Use a new reverse transfer to correct paired transfer entries')
         if before['reverses_entry_id'] or con.execute('SELECT 1 FROM cash_entries WHERE reverses_entry_id=?',(entry_id,)).fetchone():
             raise ValueError('Entry is already a reversal or has been reversed')
@@ -256,6 +258,7 @@ def reverse_cash_entry(entry_id:int,entry_date:str,expected_revision:int,key:str
 @router.get('/api/assets')
 def assets(actor: str=Depends(authorize)):
     from apps.api.fx import get_fx
+    from apps.api.settlements import ensure_schema
     from packages.core.dashboard import summarize_account
     from packages.core.market_time import et_today
     from packages.providers import get_quote
@@ -264,12 +267,43 @@ def assets(actor: str=Depends(authorize)):
     with _db() as con:
         # Read balances and securities from one ledger snapshot, then release it
         # before any provider I/O so data fetching never blocks account writers.
+        ensure_schema(con)
         con.execute('BEGIN')
         accounts=[_cash_summary(con,dict(row)) for row in con.execute('SELECT * FROM accounts WHERE archived=0 ORDER BY id')]
-        trades=[dict(row) for row in con.execute('SELECT * FROM trades WHERE deleted=0 AND trade_date<=?',(today.isoformat(),))]
+        trades=[dict(row) for row in con.execute('''SELECT t.* FROM trades t JOIN accounts a ON a.id=t.account_id
+            WHERE t.deleted=0 AND a.archived=0 AND t.trade_date<=?''',(today.isoformat(),))]
+        cash_entries=[dict(row) for row in con.execute('SELECT * FROM cash_entries')]
+        settlements=[dict(row) for row in con.execute('SELECT * FROM trade_settlements')]
+    # A quote can value the recorded holding, but cannot prove the purchase has
+    # already reduced cash. Only an explicit, valid settlement link can do that.
+    trade_map={row['id']:row for row in trades}
+    cash_map={row['id']:row for row in cash_entries}
+    reversed_ids={row['reverses_entry_id'] for row in cash_entries if row.get('reverses_entry_id') is not None}
+    valid_links,invalid_links,used_cash=set(),set(),set()
+    for link in settlements:
+        trade=trade_map.get(link['trade_id'])
+        if trade is None:continue
+        cash=cash_map.get(link['cash_entry_id'])
+        expected=(-1 if trade['side']=='buy' else 1)*trade['shares']*trade['price']-trade['fee']
+        valid=(cash is not None and trade['id'] not in valid_links and cash['id'] not in used_cash
+               and cash['account_id']==trade['account_id'] and cash['currency']==trade['currency']=='USD'
+               and math.isfinite(expected) and abs(expected)>1e-9
+               and cash['kind']==('withdraw' if expected<0 else 'deposit')
+               and not cash.get('transfer_group') and cash.get('counter_account_id') is None
+               and cash.get('reverses_entry_id') is None and cash['id'] not in reversed_ids
+               and cash.get('symbol') in (None,trade['symbol'])
+               and trade['trade_date']<=cash['entry_date']
+               and math.isfinite(cash['amount']) and abs(cash['amount']-expected)<=.005+1e-9)
+        if valid:
+            valid_links.add(trade['id']);used_cash.add(cash['id'])
+        else:invalid_links.add(trade['id'])
+    unmatched=[row['id'] for row in trades if row['id'] in invalid_links or
+               (row['id'] not in valid_links and abs((-1 if row['side']=='buy' else 1)*row['shares']*row['price']-row['fee'])>1e-9)]
     grouped={a['id']:[t for t in trades if t['account_id']==a['id']] for a in accounts}
     symbols=sorted({h['symbol'] for rows in grouped.values() for h in summarize_account(rows,{},today)['holdings']})
     quotes={};sources=[];warnings=[]
+    if unmatched:
+        warnings.append('部分证券交易的现金结算尚未核对，当前仅展示已记录资产估值，暂不确认完整净资产。请由 Agent 核对结算关联。')
     def quote(symbol):
         try:
             result=get_quote(symbol)
@@ -304,15 +338,22 @@ def assets(actor: str=Depends(authorize)):
         timestamps=[h['quote_timestamp'] for h in summary['holdings'] if isinstance(h.get('quote_timestamp'),(int,float)) and math.isfinite(h['quote_timestamp']) and h['quote_timestamp']>0]
         account.update(cash_value_usd=cash,securities_value_usd=security,
                        value_usd=cash+security if cash is not None and security is not None else None,
+                       settlement_complete=not any(t['id'] in unmatched for t in grouped[account['id']]),
+                       unmatched_trade_ids=sorted(t['id'] for t in grouped[account['id']] if t['id'] in unmatched),
                        fx_rate_to_usd=1/rate if valid_rate else None,
                        fx_as_of=fx.get('as_of') if account['currency']!='USD' else None,
                        quote_timestamp_min=min(timestamps) if timestamps else None,
                        quote_timestamp_max=max(timestamps) if timestamps else None)
     cash_value=None if missing_fx else math.fsum(a['cash_value_usd'] for a in accounts)
     security_value=None if missing_quotes else math.fsum(a['securities_value_usd'] for a in accounts)
-    complete=cash_value is not None and security_value is not None
+    recorded_complete=cash_value is not None and security_value is not None
+    recorded_assets=cash_value+security_value if recorded_complete else None
+    settlement_complete=not unmatched
+    complete=recorded_complete and settlement_complete
     if fx.get('stale'):warnings.append('当前账户折算使用过期参考汇率，请留意汇率日期。')
-    return {'as_of':today.isoformat(),'base':'USD','net_assets_usd':cash_value+security_value if complete else None,
+    return {'as_of':today.isoformat(),'base':'USD','net_assets_usd':recorded_assets if complete else None,
+            'recorded_assets_usd':recorded_assets,'recorded_complete':recorded_complete,
+            'settlement_complete':settlement_complete,'unmatched_trade_ids':sorted(unmatched),
             'securities_value_usd':security_value,'cash_value_usd':cash_value,'complete':complete,
             'missing_fx':sorted(set(missing_fx)),'missing_quotes':sorted(set(missing_quotes)),
             'accounts':accounts,'fx':fx,'quote_sources':sources,'warnings':list(dict.fromkeys(warnings))}

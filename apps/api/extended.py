@@ -16,7 +16,7 @@ def health(actor: str = Depends(authorize)):
     worker = worker_status()
     backup = backup_status()
     with db() as con:
-        return {'release':'2.2.0', 'database':con.execute('PRAGMA quick_check').fetchone()[0],
+        return {'release':'2.3.0', 'database':con.execute('PRAGMA quick_check').fetchone()[0],
                 'timezone':'UTC', 'worker':worker, 'backup':backup}
 
 @router.get('/export')
@@ -24,9 +24,11 @@ def export(actor: str = Depends(authorize)):
     # One read transaction: account balances and their journal cannot diverge
     # if an Agent records a transfer while the export is being assembled.
     with db() as con:
+        from apps.api.settlements import ensure_schema
+        ensure_schema(con)
         con.execute('BEGIN')
         data = {'format':'accufolio-v2', 'exported_at':datetime.now(timezone.utc).isoformat()}
-        for table in ('accounts','cash_entries','trades','fx_rates','settings','allocation_targets'):
+        for table in ('accounts','cash_entries','trades','trade_settlements','fx_rates','settings','allocation_targets'):
             data[table] = [dict(row) for row in con.execute('SELECT * FROM ' + table)]
     return Response(json.dumps(data,ensure_ascii=False),media_type='application/json',headers={'Content-Disposition':'attachment; filename="accufolio.json"','Cache-Control':'no-store'})
 
@@ -41,6 +43,8 @@ def undo(audit_id: int, actor: str = Depends(authorize)):
         if audit['action'] not in ('add_trade','update_trade','delete_trade') or 'after' not in data: raise HTTPException(422,'This audit cannot be undone')
         current = con.execute('SELECT * FROM trades WHERE id=?',(data['id'],)).fetchone()
         if not current or dict(current) != data['after']: raise HTTPException(409,'Trade changed since this action; undo newer changes first')
+        from apps.api.settlements import require_unlinked
+        require_unlinked(con, trade_id=data['id'])
         before=data['before']
         if before is None:
             con.execute('UPDATE trades SET deleted=1 WHERE id=?',(data['id'],))
@@ -51,6 +55,12 @@ def undo(audit_id: int, actor: str = Depends(authorize)):
             con.execute('UPDATE trades SET symbol=?,trade_date=?,shares=?,price=?,note=?,deleted=?,side=?,account_id=?,currency=?,fee=?,strategy=? WHERE id=?',tuple(before[k] for k in ('symbol','trade_date','shares','price','note','deleted','side','account_id','currency','fee','strategy'))+(data['id'],))
         from apps.api.main import validate_trade_history
         validate_trade_history(con)
+        from apps.api.accounts import _stamp
+        affected_accounts = {current['account_id']}
+        if before is not None:
+            affected_accounts.add(before['account_id'])
+        for account_id in sorted(affected_accounts):
+            _stamp(con, account_id)
         con.execute('INSERT INTO reversals VALUES(?)',(audit_id,))
         con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)',(actor,'undo',json.dumps({'audit_id':audit_id})))
     return {'ok':True}

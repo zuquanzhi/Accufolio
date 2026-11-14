@@ -17,11 +17,13 @@ import uvicorn
 import apps.api.main as api
 import apps.api.dashboard as dashboard
 import apps.api.history as history_api
+import apps.api.asset_history as asset_history_api
 import apps.api.fx as fx_api
 import packages.providers as providers
 import packages.core.market_time as market_time
 from apps.api.accounts import Account, CashEntry, save_account, add_cash_entry
 from apps.api.allocation import save_targets
+from apps.api.settlements import set_trade_settlement
 from packages.providers import Quote, QuoteResult
 
 TODAY=date(2026,11,13)
@@ -30,6 +32,7 @@ clock=market_time.market_clock(instant)
 api.et_today=lambda:TODAY
 market_time.et_today=lambda:TODAY
 dashboard.market_clock=lambda:clock
+asset_history_api.market_clock=lambda:clock
 prices={'QQQM':204.75,'VOO':520.40,'AAPL':225.60}
 quote=lambda symbol: QuoteResult(Quote(symbol,prices.get(symbol,204.75),.84,'demo',instant.timestamp()),False,())
 api.get_quote=dashboard.get_quote=providers.get_quote=quote
@@ -42,7 +45,7 @@ def daily(symbol,start=None,end=None):
         if (not start or day>=start) and (not end or day<=end):bars.append({'day':day.isoformat(),'close':round(price,2)})
     return {'symbol':symbol,'bars':bars,'source':'demo','cached':True,'stale':False,'adjustment':'unadjusted',
             'adjustment_note':'示例数据 · 未复权','warnings':['示例数据 · 未复权'],'errors':[]}
-dashboard.get_history=history_api.get_history=daily
+dashboard.get_history=history_api.get_history=asset_history_api.get_history=daily
 fx_current={'base':'USD','rates':{'USD':1,'CNY':7.1,'HKD':7.8,'EUR':.93},'as_of':TODAY.isoformat(),
             'fetched_at':instant.isoformat(),'source':'DEMO','cached':True,'stale':False,'available':True,'errors':[]}
 fx_api.get_fx=lambda:fx_current
@@ -51,7 +54,8 @@ def historic_fx(days,base='USD'):
     points=[]
     for day in days:
         day=date.fromisoformat(day) if isinstance(day,str) else day
-        value=7.0+.1*math.sin((day-date(2026,1,1)).days/50)
+        phase=(day-date(2026,1,1)).days/(TODAY-date(2026,1,1)).days
+        value=7.0+.1*phase+.03*math.sin(phase*6*math.pi)
         points.append({'day':day.isoformat(),'rates':{'USD':1,'CNY':value,'HKD':7.8,'EUR':.93},
                        'rate_dates':{c:day.isoformat() for c in ['USD','CNY','HKD','EUR']},'source':'DEMO'})
     return {'base':base,'points':points,'cached':True,'stale':False,'errors':[],'source':'DEMO'}
@@ -63,17 +67,20 @@ broker=save_account(Account(name='长线投资',kind='broker',purpose='investing
 savings=save_account(Account(name='工资结余',kind='bank',purpose='savings',currency='CNY',institution='示例银行'),None,0,'preview-savings',False,'preview')
 emergency=save_account(Account(name='安心储备',kind='bank',purpose='emergency',currency='USD',institution='示例银行'),None,0,'preview-emergency',False,'preview')
 
-def cash(account,day,kind,amount,key,note):
+def cash(account,day,kind,amount,key,note,symbol=None):
     with api.db() as con:revision=con.execute('SELECT revision FROM accounts WHERE id=?',(account['id'],)).fetchone()[0]
-    return add_cash_entry(CashEntry(account_id=account['id'],entry_date=day,kind=kind,amount=amount,currency=account['currency'],note=note),revision,key,False,'preview')
-cash(broker,'2026-01-02','balance_open',6266.45,'preview-broker-opening','投资资金 · 示例')
+    return add_cash_entry(CashEntry(account_id=account['id'],entry_date=day,kind=kind,amount=amount,currency=account['currency'],note=note,symbol=symbol),revision,key,False,'preview')
+cash(broker,'2026-01-02','balance_open',6236.45,'preview-broker-opening','投资资金 · 示例')
 cash(savings,'2026-01-02','balance_open',14000,'preview-savings-opening','年初结余 · 示例')
 cash(savings,'2026-11-10','deposit',600,'preview-salary','本月工资结余 · 示例')
 cash(savings,'2026-11-12','withdraw',-400,'preview-expense','日常支出 · 示例')
 cash(emergency,'2026-01-02','balance_open',1000,'preview-emergency-opening','应急储备 · 示例')
 for symbol,day,shares,price,side in [('QQQM','2026-01-05',4,180,'buy'),('QQQM','2026-05-05',3,188,'buy'),('QQQM','2026-09-05',2,182,'buy'),('VOO','2026-02-05',3,460,'buy'),('VOO','2026-08-05',2,485,'buy'),('AAPL','2026-03-05',5,190,'buy'),('AAPL','2026-06-05',4,195,'buy'),('AAPL','2026-10-05',1,220,'sell')]:
-    api.mutate_trade('add',api.Trade(account_id=broker['id'],symbol=symbol,trade_date=day,shares=shares,price=price,side=side,fee=1,strategy='dca',note='长期计划 · 示例'),None,'preview')
-    cash(broker,day,'withdraw' if side=='buy' else 'deposit',-(shares*price+1) if side=='buy' else shares*price-1,'preview-settlement-'+symbol+'-'+day,symbol+' 交易结算 · 示例')
+    trade=api.mutate_trade('add',api.Trade(account_id=broker['id'],symbol=symbol,trade_date=day,shares=shares,price=price,side=side,fee=1,strategy='dca',note='长期计划 · 示例'),None,'preview')
+    settlement=cash(broker,day,'withdraw' if side=='buy' else 'deposit',-(shares*price+1) if side=='buy' else shares*price-1,'preview-settlement-'+symbol+'-'+day,symbol+' 交易结算 · 示例',symbol)
+    set_trade_settlement(trade['id'],settlement['entry']['id'],settlement['account']['revision'],'preview-link-'+str(trade['id']),False,'preview')
+for symbol,day,amount in [('QQQM','2026-03-16',10),('QQQM','2026-06-16',12),('VOO','2026-09-16',8)]:
+    cash(broker,day,'dividend',amount,'preview-dividend-'+symbol+'-'+day,'季度净到账分红 · 示例',symbol)
 save_targets('securities',{'QQQM':35,'VOO':40,'AAPL':25},0,'preview-security-targets',False,'preview')
 save_targets('net_worth',{f"account:{broker['id']}":65,f"account:{savings['id']}":20,f"account:{emergency['id']}":15},1,'preview-account-targets',False,'preview')
 uvicorn.run(api.app,host='127.0.0.1',port=int(__import__('os').environ['PREVIEW_PORT']),log_level='warning')
@@ -101,6 +108,13 @@ def main():
                 browser=p.chromium.launch(headless=True,**({'channel':'msedge'} if os.name=='nt' else {}))
                 context=browser.new_context(viewport={'width':1440,'height':1160},device_scale_factor=1,reduced_motion='reduce')
                 assert context.request.post(base+'/api/session',data={'username':'admin','password':'preview-only','remember':True},headers={'X-Accufolio':'1'}).ok
+                # These screenshots must contain real calculated returns, not empty shells.
+                full=context.request.get(base+'/api/dashboard?period=all').json()
+                assert full['summary']['cash_dividends']==30 and full['summary']['dividends_complete'],full['summary']
+                history=context.request.get(base+'/api/assets/history?period=all&currency=USD').json()
+                assert history['summary']['twr'] is not None and history['summary']['max_drawdown'] is not None,history
+                assert not history['coverage']['unmatched_trade_ids'],history['coverage']
+                assert abs(history['series'][-1]['value']-10000)<1e-7,history['series'][-1]
                 page=context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
                 tab=lambda name:page.locator(f'a[data-view="{name}"]').click()
                 def capture(name):
@@ -109,6 +123,9 @@ def main():
                 expect(page.locator('#asset-accounts .named-account')).to_have_count(3)
                 capture('web-overview.png')
                 page.set_viewport_size({'width':1440,'height':900});capture('poster-web-overview.png');page.set_viewport_size({'width':1440,'height':1160})
+                page.locator('#open-asset-history').click();expect(page.locator('#asset-history-chart .chart-line')).to_have_count(1)
+                expect(page.locator('#wealth-twr')).not_to_have_text('—');capture('web-assets-history.png')
+                page.locator('#account-back').click();expect(page.locator('#assets-total')).to_be_visible()
                 tab('investments');expect(page.locator('#value')).to_have_text('$6,249.55');expect(page.locator('#portfolio-chart .chart-line')).to_have_count(2)
                 capture('web-investments.png')
                 page.locator('[data-asset-detail=allocation]').click();capture('web-allocation.png')
@@ -122,10 +139,16 @@ def main():
                 page.set_viewport_size({'width':1440,'height':2100});page.locator('.backtest-detail > summary').click();page.locator('#backtest-panel').screenshot(path=str(OUT/'web-backtest.png'));page.locator('.backtest-detail > summary').click()
                 page.set_viewport_size({'width':390,'height':844})
                 tab('assets');capture('mobile-overview.png')
+                page.locator('#open-asset-history').click();expect(page.locator('#asset-history-chart .chart-line')).to_have_count(1);capture('mobile-assets-history.png')
+                page.locator('[data-wealth-curve=nav]').click();expect(page.locator('#asset-history-chart .chart-line')).to_have_count(1);capture('mobile-nav.png')
+                page.locator('[data-wealth-curve=drawdown]').click();expect(page.locator('#asset-history-chart .chart-line')).to_have_count(1);capture('mobile-drawdown.png')
+                page.locator('#account-back').click();expect(page.locator('#assets-total')).to_be_visible()
                 page.locator('#asset-accounts [data-account-id="2"]').click();expect(page.locator('#account-cash-entries')).to_contain_text('本月工资结余');capture('mobile-account.png')
                 page.locator('#account-back').click();expect(page.locator('#assets-total')).to_be_visible()
                 tab('investments');capture('mobile-investments.png')
                 page.locator('[data-asset-detail=allocation]').click();capture('mobile-allocation.png')
+                page.locator('#asset-detail-back').click();expect(page.locator('#value')).to_be_visible()
+                page.locator('[data-asset-detail=performance]').click();expect(page.locator('#investment-dividends')).to_have_text('$30.00');capture('mobile-dividends.png')
                 page.locator('#asset-detail-back').click();expect(page.locator('#value')).to_be_visible()
                 tab('records');expect(page.locator('#trades')).to_contain_text('QQQM');capture('mobile-trades.png')
                 tab('discover');expect(page.locator('#discover-home')).to_be_visible();capture('mobile-discover.png')
@@ -141,7 +164,7 @@ def main():
                 tab('investments');expect(page.locator('#portfolio-chart .chart-line')).to_have_count(2);expect(page.locator('#history-coverage')).to_contain_text('按各交易日历史汇率折算');capture('mobile-investments-cny.png')
                 assert not errors,errors
                 browser.close()
-            print('Captured v2 Assets, Investments, account cashflows and five mobile pages with synthetic data only.')
+            print('Captured assets, cash-flow-adjusted NAV/drawdown, $30 net dividends and five mobile pages; actual API returns verified using synthetic data only.')
         finally:
             process.terminate()
             try:process.wait(timeout=15)

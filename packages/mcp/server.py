@@ -135,7 +135,8 @@ def add_cash_entry(account_id: int, entry_date: str, kind: str, amount: float, c
     Positive: balance_open/deposit/interest/dividend; negative: withdraw/fee.
     Use transfer_cash for both transfer/FX legs atomically. Securities records
     do not automatically settle cash; record actual cash movements explicitly.
-    Cash dividends are journaled here; securities XIRR currently covers trades.
+    For securities returns, record actual net dividends with the original
+    brokerage account and symbol. Link trade cash with set_trade_settlement.
     """
     from apps.api.accounts import CashEntry, add_cash_entry as save
     require_write()
@@ -174,6 +175,39 @@ def set_settings(display_currency: str, market_timezone: str, expected_revision:
     from apps.api.preferences import set_settings as save
     require_write()
     return save(display_currency,market_timezone,expected_revision,idempotency_key,dry_run)
+
+@mcp.tool()
+def list_trade_settlements() -> list[dict]:
+    """Read explicit links from securities trades to actual cash movements."""
+    from apps.api.settlements import list_settlements
+    return list_settlements(actor='mcp')
+
+
+@mcp.tool()
+def set_trade_settlement(trade_id: int, cash_entry_id: int | None, expected_revision: int,
+                         idempotency_key: str, dry_run: bool = True) -> dict:
+    """Link a trade to its recorded net cash settlement, preview by default.
+
+    Use the same account, currency and net amount including trading fees.
+    Settlement cannot predate the trade. Each cash entry settles one trade.
+    Pass cash_entry_id=null to unlink before correcting either source record.
+    This tool never creates cash. Read account revision immediately beforehand.
+    """
+    from apps.api.settlements import set_trade_settlement as save
+    require_write()
+    return save(trade_id,cash_entry_id,expected_revision,idempotency_key,dry_run)
+
+
+@mcp.tool()
+def get_asset_history(period: str = '1y', currency: str = 'USD') -> dict:
+    """Historical all-account value, flow-adjusted NAV, return and drawdown.
+
+    Read coverage and unmatched_trade_ids before interpreting performance.
+    period: 1m/3m/1y/all; currency: USD/CNY/HKD/EUR. No financial writes.
+    """
+    from apps.api.asset_history import asset_history
+    return asset_history(period=period,currency=currency,actor='mcp')
+
 
 if __name__ == '__main__':
     mcp.run(transport='stdio')

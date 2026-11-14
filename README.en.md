@@ -30,6 +30,9 @@ Asset and transaction data is read-only in Web, PWA, and Android, backed by your
 <img src="assets/previews/mobile-allocation.png" alt="Securities allocation and holdings" width="280">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
+<img src="assets/previews/web-assets-history.png" alt="All-account historical value and flow-adjusted NAV" width="800">
+<img src="assets/previews/mobile-assets-history.png" alt="Mobile asset NAV and drawdown" width="280">
+<img src="assets/previews/mobile-dividends.png" alt="Cash dividends and securities total return" width="280">
 <img src="assets/previews/mobile-account.png" alt="Account journal with original-currency running balances" width="280">
 <img src="assets/previews/mobile-settings.png" alt="Mobile settings" width="280">
 <img src="assets/previews/android-welcome.png" alt="Android client server connection welcome screen" width="280">
@@ -41,8 +44,8 @@ The device frames are illustrative; the screenshots show the running application
 
 | Page | Purpose |
 |---|---|
-| **Assets** | Default home: net assets, named accounts, cash balances, and account allocation. Inspect running balances, transfers, and reversals in each account. |
-| **Investments** | Securities holdings, realized and unrealized gains, historical curves, and separate allocation/performance details. |
+| **Assets** | Default home: net assets, named accounts, cash balances, and account allocation. Inspect each journal, or open asset history for value, flow-adjusted NAV, and drawdown. |
+| **Investments** | Securities holdings, realized/unrealized gains, paid dividends, total return, and separate allocation/performance details. |
 | **Records** | Search trades and filter by account, side, and month, preserving original currency, fees, and strategy. |
 | **Discover** | Independent tools for strategy backtesting and take-home income estimates. |
 | **Settings** | Display currency, timezone, login, backups, connection, and updates. |
@@ -61,13 +64,13 @@ Account, cash, trade, target, and shared-setting writes default to a preview. Co
 
 > Prepare this completed US stock purchase: confirm its brokerage account, amount, fee, and strategy, then reconcile the trade and actual cash movement separately.
 
-**Trades do not automatically settle cash.** Record actual cash movements separately; never infer opening balances from trades. Dedicated transfer tools record both account or FX legs atomically. MCP requires local access to the same database; there is no remote MCP endpoint. See the [MCP guide](guides/使用与部署.md#mcp-接入).
+**Trades do not automatically settle cash.** Record actual cash movements separately, then link settlements through `set_trade_settlement`; never infer opening balances from trades. Dedicated transfer tools record both account or FX legs atomically. MCP requires local access to the same database; there is no remote MCP endpoint. See the [MCP guide](guides/使用与部署.md#mcp-接入).
 
 ## Calculation basis
 
-Net assets combine securities values and account cash balances in one currency; liabilities are not modeled. Moving-average securities cost includes transaction fees. XIRR explicitly measures USD securities trade cash flows; account interest and cash dividends are not automatically included.
+Net assets combine securities values and account cash balances in one currency; liabilities are not modeled. Moving-average securities cost includes transaction fees. Securities total return and USD XIRR include attributable net cash dividends, without adding them to account balances twice.
 
-Latest quotes and historical closes show separate timestamps. History uses same-day unadjusted closes from completed US Eastern trading sessions, retaining gaps. It is not complete account NAV. ECB historical rates are stored by date and never replaced by today's rate when converting the past. See the [data model and calculations](guides/schema-v2.md).
+Latest quotes and historical closes show separate timestamps. History uses same-day unadjusted closes from completed US Eastern trading sessions, retaining gaps. The separate all-account history includes cash, securities, and linked unsettled amounts, with external-flow-adjusted NAV and drawdown. ECB historical rates are stored by date and never replaced by today's rate when converting the past. See [return methods and data coverage](guides/performance.md) for the daily approximation, settlement links, and cash-paid dividend basis.
 
 ## Quick start
 
@@ -102,7 +105,7 @@ Remembered login lasts up to 90 days using a revocable token, never a stored pas
 
 SQLite online backups and JSON data exports support data ownership. Automatic daily backups retain 30 copies by default. Settings show automatic backup time, worker heartbeat, and failures. MCP database permissions belong to its local process.
 
-Current support covers USD US-stock trades, original-currency cash accounts, and four display currencies. Unsupported FX conversions remain unavailable. Cash entries can record interest, dividends, and fees; securities XIRR does not yet include cash dividends. Unadjusted history may be affected by splits. Broker execution, multiple users, remote MCP, and market-data redistribution are outside the current scope. Offline startup, complete account NAV, and liabilities are not implemented. See the [roadmap](guides/roadmap.md).
+Current support covers USD US-stock trades, original-currency cash accounts, and four display currencies. Unsupported FX conversions remain unavailable. Cash entries can record interest, dividends, and fees; securities XIRR includes attributable USD net cash dividends. Unadjusted history may be affected by splits. Broker execution, multiple users, remote MCP, and market-data redistribution are outside the current scope. Offline startup, liabilities, corporate actions, and unpaid dividend receivables are not modeled. See the [roadmap](guides/roadmap.md).
 
 ## Development
 

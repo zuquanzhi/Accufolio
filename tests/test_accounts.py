@@ -122,7 +122,11 @@ class AccountTests(unittest.TestCase):
 
     def test_assets_sum_native_cash_and_securities_once_missing_fx_unknown(self):
         self.cash(self.account('HKD','HKD'),780)
-        with closing(sqlite3.connect(self.path)) as con, con:con.execute("INSERT INTO trades(account_id,symbol,trade_date,shares,price) VALUES(1,'AAA','2026-01-05',3,100)")
+        with closing(sqlite3.connect(self.path)) as con, con:
+            trade_id=con.execute("INSERT INTO trades(account_id,symbol,trade_date,shares,price) VALUES(1,'AAA','2026-01-05',3,100)").lastrowid
+            con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-05','balance_open',300,'USD')")
+            cash_id=con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-05','withdraw',-300,'USD')").lastrowid
+            con.execute('INSERT INTO trade_settlements(trade_id,cash_entry_id) VALUES(?,?)',(trade_id,cash_id))
         quote=QuoteResult(Quote('AAA',120,1,'test',0),False,())
         rates={'base':'USD','rates':{'USD':1,'HKD':7.8},'as_of':'2026-11-13','source':'test','available':True,'stale':False}
         with patch('packages.providers.get_quote',return_value=quote),patch('apps.api.fx.get_fx',return_value=rates):result=assets(actor='test')
@@ -250,7 +254,10 @@ class AccountTests(unittest.TestCase):
     def test_quote_fallback_warnings_and_timestamp_do_not_leak_errors(self):
         list_accounts(actor='test')
         with closing(sqlite3.connect(self.path)) as con,con:
-            con.execute("INSERT INTO trades(symbol,trade_date,shares,price) VALUES('AAA','2026-01-05',1,100)")
+            trade_id=con.execute("INSERT INTO trades(symbol,trade_date,shares,price) VALUES('AAA','2026-01-05',1,100)").lastrowid
+            con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-05','balance_open',100,'USD')")
+            cash_id=con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-05','withdraw',-100,'USD')").lastrowid
+            con.execute('INSERT INTO trade_settlements(trade_id,cash_entry_id) VALUES(?,?)',(trade_id,cash_id))
         quote=QuoteResult(Quote('AAA',120,1,'tencent',1794592259,1794592264),True,('https://private.example/token=SECRET',))
         with patch('packages.providers.get_quote',return_value=quote):result=assets(actor='test')
         self.assertEqual(result['net_assets_usd'],120);self.assertTrue(result['complete'])
@@ -279,7 +286,8 @@ class AccountTests(unittest.TestCase):
             con.execute("INSERT INTO trades(symbol,trade_date,shares,price,fee,side) VALUES('AAA','2026-02-05',2,130,1,'sell')")
         with patch('packages.providers.get_quote') as quote:result=assets(actor='test')
         quote.assert_not_called()
-        self.assertEqual(result['securities_value_usd'],0);self.assertEqual(result['net_assets_usd'],50)
+        self.assertEqual(result['securities_value_usd'],0);self.assertEqual(result['recorded_assets_usd'],50)
+        self.assertIsNone(result['net_assets_usd']);self.assertFalse(result['settlement_complete'])
         self.assertEqual(result['accounts'][0]['balance'],50)
 
     def test_same_stock_multiple_accounts_and_provider_io_outside_database(self):
@@ -298,6 +306,65 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(result['securities_value_usd'],240)
         self.assertEqual([a['securities_value_usd'] for a in result['accounts']],[120,120])
         self.assertEqual(result['cash_value_usd'],0)
+
+    def test_unmatched_trade_retains_recorded_value_but_not_complete_net_assets(self):
+        original=list_accounts(actor='test')[0]
+        self.cash(original,1000)
+        with closing(sqlite3.connect(self.path)) as con,con:
+            trade_id=con.execute("INSERT INTO trades(symbol,trade_date,shares,price) VALUES('AAA','2026-01-05',1,100)").lastrowid
+        quote=QuoteResult(Quote('AAA',100,0,'test',0),False,())
+        with patch('packages.providers.get_quote',return_value=quote):before=assets(actor='test')
+        self.assertEqual(before['recorded_assets_usd'],1100)
+        self.assertTrue(before['recorded_complete'])
+        self.assertFalse(before['complete']);self.assertFalse(before['settlement_complete'])
+        self.assertIsNone(before['net_assets_usd'])
+        self.assertEqual(before['unmatched_trade_ids'],[trade_id])
+        self.assertEqual(before['accounts'][0]['unmatched_trade_ids'],[trade_id])
+        self.assertEqual(before['accounts'][0]['value_usd'],1100)
+        self.assertTrue(any('结算' in message for message in before['warnings']))
+        with closing(sqlite3.connect(self.path)) as con,con:
+            cash_id=con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-05','withdraw',-100,'USD')").lastrowid
+            con.execute('INSERT INTO trade_settlements(trade_id,cash_entry_id) VALUES(?,?)',(trade_id,cash_id))
+        with patch('packages.providers.get_quote',return_value=quote):after=assets(actor='test')
+        self.assertEqual(after['net_assets_usd'],1000)
+        self.assertTrue(after['complete']);self.assertTrue(after['settlement_complete'])
+        self.assertEqual(after['unmatched_trade_ids'],[])
+
+    def test_invalid_or_reversed_settlement_never_confirms_net_assets(self):
+        original=list_accounts(actor='test')[0];self.cash(original,1000)
+        with closing(sqlite3.connect(self.path)) as con,con:
+            tid=con.execute("INSERT INTO trades(symbol,trade_date,shares,price) VALUES('AAA','2026-01-05',1,100)").lastrowid
+            cid=con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-05','withdraw',-100,'USD')").lastrowid
+            con.execute('INSERT INTO trade_settlements(trade_id,cash_entry_id) VALUES(?,?)',(tid,cid))
+        quote=QuoteResult(Quote('AAA',100,0,'test',0),False,())
+        for field,value in [('amount',-99),('kind','deposit'),('symbol','BBB'),('counter_account_id',1),('transfer_group','bad'),('entry_date','2026-01-04')]:
+            with self.subTest(field=field):
+                with closing(sqlite3.connect(self.path)) as con,con:
+                    previous=con.execute('SELECT '+field+' FROM cash_entries WHERE id=?',(cid,)).fetchone()[0]
+                    con.execute('UPDATE cash_entries SET '+field+'=? WHERE id=?',(value,cid))
+                with patch('packages.providers.get_quote',return_value=quote):result=assets(actor='test')
+                self.assertFalse(result['settlement_complete']);self.assertIsNone(result['net_assets_usd'])
+                with closing(sqlite3.connect(self.path)) as con,con:con.execute('UPDATE cash_entries SET '+field+'=? WHERE id=?',(previous,cid))
+        with closing(sqlite3.connect(self.path)) as con,con:
+            con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency,reverses_entry_id) VALUES(1,'2026-01-06','deposit',100,'USD',?)",(cid,))
+        with patch('packages.providers.get_quote',return_value=quote):result=assets(actor='test')
+        self.assertFalse(result['settlement_complete']);self.assertEqual(result['recorded_assets_usd'],1100)
+
+    def test_zero_net_sale_needs_no_cash_and_latest_cash_date_is_preserved(self):
+        from datetime import date
+        original=list_accounts(actor='test')[0];self.cash(original,1000)
+        with closing(sqlite3.connect(self.path)) as con,con:
+            tid=con.execute("INSERT INTO trades(symbol,trade_date,shares,price) VALUES('AAA','2026-01-05',1,100)").lastrowid
+            cid=con.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(1,'2026-01-06','withdraw',-100,'USD')").lastrowid
+            con.execute('INSERT INTO trade_settlements(trade_id,cash_entry_id) VALUES(?,?)',(tid,cid))
+            con.execute("INSERT INTO trades(symbol,trade_date,shares,price,fee,side) VALUES('AAA','2026-01-05',1,100,100,'sell')")
+        with patch('packages.core.market_time.et_today',return_value=date(2026,1,5)),patch('packages.providers.get_quote') as quote:
+            result=assets(actor='test')
+        quote.assert_not_called()
+        self.assertEqual(result['as_of'],'2026-01-05')
+        self.assertEqual(result['accounts'][0]['as_of'],'2026-01-06')
+        self.assertEqual(result['net_assets_usd'],900)
+        self.assertTrue(result['complete'])
 
 
 if __name__=='__main__':unittest.main()

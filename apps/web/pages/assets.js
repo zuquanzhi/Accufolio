@@ -8,16 +8,61 @@ const kinds={broker:'券商账户',bank:'银行账户',ewallet:'电子钱包',pr
 const purposes={investing:'投资',savings:'储蓄',emergency:'应急',spending:'日常支出',housing_fund:'公积金'};
 const events={balance_open:'期初余额',deposit:'转入',withdraw:'转出',interest:'利息',transfer_in:'账户转入',transfer_out:'账户转出',fx_in:'换汇转入',fx_out:'换汇转出',fee:'费用',dividend:'分红'};
 let data=null,dataError=false,allocation=null,allocationError=false,revision=-1,loaded=0,token=0,interval=null,selected=null,entriesToken=0,entriesKey='',entriesLoaded=0,entries=null,entriesAccount=null,entriesRevision=null;
+let historyDetail=false,wealth=null,wealthChart=null,wealthToken=0,wealthKey='',wealthLoaded=0,wealthCurve='value';
+let wealthPeriod=sessionStorage.getItem('accufolio.wealth.period')||'1y';
+if(!['1m','3m','1y','all'].includes(wealthPeriod))wealthPeriod='1y';
 const journalSyncMessage='流水与账户数据暂未同步，请刷新后重试。';
 function currentAccount(){const raw=new URLSearchParams(location.search).get('account');return raw&&/^\d+$/.test(raw)?Number(raw):null;}
 function showPage(){
-  selected=currentAccount();$('#assets-overview').hidden=selected!==null;$('#asset-account-detail').hidden=selected===null;$('#account-back').hidden=selected===null;
-  const account=data?.accounts.find(row=>row.id===selected);$('#assets-title').textContent=selected===null?'资产':account?.name||'账户明细';if(root.isConnected)document.title=$('#assets-title').textContent+' · Accufolio';
+  selected=currentAccount();historyDetail=selected===null&&new URLSearchParams(location.search).get('detail')==='history';$('#assets-overview').hidden=selected!==null||historyDetail;$('#asset-account-detail').hidden=selected===null;$('#asset-history-detail').hidden=!historyDetail;$('#account-back').hidden=selected===null&&!historyDetail;
+  const account=data?.accounts.find(row=>row.id===selected);$('#assets-title').textContent=historyDetail?'资产走势':selected===null?'资产':account?.name||'账户明细';if(root.isConnected)document.title=$('#assets-title').textContent+' · Accufolio';
   if(selected!==null){renderAccount(account);if(account)loadEntries();else clearEntries(dataError?'账户数据暂不可用，请刷新后重试。':data?'该账户当前不可查看。':'正在读取账户…');}
+  if(historyDetail){renderWealth();if(root.isConnected)loadWealth();}
 }
 function openAccount(id){history.pushState({page:'assets',accountDetail:true},'','/assets?account='+id);showPage();window.scrollTo({top:0,behavior:'instant'});$('#assets-title').focus({preventScroll:true});}
-function closeAccount(){if(selected===null)return false;if(history.state?.accountDetail)history.back();else{history.replaceState({page:'assets'},'','/assets');showPage();window.scrollTo({top:0,behavior:'instant'});}return true;}
+function closeAccount(){if(selected===null&&!historyDetail)return false;if(history.state?.accountDetail||history.state?.wealthDetail)history.back();else{history.replaceState({page:'assets'},'','/assets');showPage();window.scrollTo({top:0,behavior:'instant'});}return true;}
 $('#account-back').onclick=closeAccount;
+$('#open-asset-history').onclick=event=>{if(event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();history.pushState({page:'assets',wealthDetail:true},'','/assets?detail=history');showPage();window.scrollTo({top:0,behavior:'instant'});$('#assets-title').focus({preventScroll:true});};
+function clearWealth(message){
+  wealth=null;wealthChart?.destroy();wealthChart=null;$('#asset-history-chart').replaceChildren(emptyState(message));
+  for(const id of ['wealth-twr','wealth-drawdown','wealth-gain','wealth-flow'])$('#'+id).textContent='—';
+  for(const id of ['wealth-drawdown-date','asset-history-status','wealth-method-note'])$('#'+id).textContent='';$('#wealth-warnings').replaceChildren();
+}
+function renderWealth(){
+  root.querySelectorAll('[data-wealth-period]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.wealthPeriod===wealthPeriod)));
+  root.querySelectorAll('[data-wealth-curve]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.wealthCurve===wealthCurve)));
+  $('#asset-history-currency').textContent='· '+preferredCurrency();
+  if(!wealth)return;
+  const currency=wealth.currency,format=value=>value==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency}).format(value),percent=value=>value==null?'—':(value*100).toFixed(2)+'%';
+  const unsettled=Boolean(wealth.coverage?.unmatched_trade_ids?.length||wealth.coverage?.issues?.some(issue=>issue.code==='invalid_settlement'));
+  $('[data-wealth-curve=value]').textContent=unsettled?'记录估值':'净资产';
+  const labels={value:unsettled?'已记录资产估值':'净资产（历史估值）',nav:'净值（资金流调整）· 起点 1',drawdown:'净值回撤'};
+  const formatter=wealthCurve==='value'?format:wealthCurve==='drawdown'?percent:value=>value.toFixed(4);
+  const axisFormat=wealthCurve==='drawdown'?value=>(Math.abs(value)<1e-10?0:value*100).toFixed(1)+'%':wealthCurve==='nav'?value=>value.toFixed(2):undefined;
+  wealthChart?.destroy();wealthChart=AccufolioCharts.renderLine($('#asset-history-chart'),{height:160,title:labels[wealthCurve],format:formatter,axisFormat,includeZero:wealthCurve==='drawdown',series:[{key:wealthCurve,label:labels[wealthCurve],color:wealthCurve==='drawdown'?'#b46e83':'#5574da',points:(wealth.series||[]).map(point=>({day:point.day,value:point[wealthCurve]}))}],emptyMessage:wealthCurve==='value'?'缺少完整历史估值，请核对行情与汇率。':'数据尚不足以计算净值与回撤，请查看下方数据说明。'});
+  const summary=wealth.summary||{};$('#wealth-twr').textContent=percent(summary.twr);$('#wealth-drawdown').textContent=percent(summary.max_drawdown);$('#wealth-drawdown-date').textContent=summary.drawdown_date||'按剔除入出金后的净值计算';$('#wealth-gain').textContent=format(summary.gain);$('#wealth-flow').textContent=format(summary.net_external_flow);
+  $('#wealth-method-note').textContent=wealth.method_note||'';
+  const warnings=[...(wealth.warnings||[])];
+  if(wealth.coverage?.unmatched_trade_ids?.length)warnings.push('请让 Agent 核对并关联交易结算流水：交易 #'+wealth.coverage.unmatched_trade_ids.join('、#')+'。');
+  $('#wealth-warnings').replaceChildren(...warnings.map(warning=>node('p',warning,'field-hint')));
+  const notes=unsettled?['已记录资产估值 · 待核对结算。未知应收应付款尚未计入，不能视为完整净资产。',wealth.end?`记录估值截至 ${wealth.end}。`:'暂无可核对的记录估值。']:[wealth.end?`历史估值截至 ${wealth.end}；当前净资产见资产首页。`:'暂无完整历史估值。'];
+  if(summary.twr==null)notes.push('当前区间收益率不可计算，请查看数据完整性说明。');
+  if(warnings.length)notes.push(warnings[0]);
+  $('#asset-history-status').textContent=notes.join(' ');
+}
+async function loadWealth(force=false){
+  if(!historyDetail)return;const currency=preferredCurrency(),current=dataRevision,period=wealthPeriod,key=[period,currency,current].join('|');
+  if(!force&&key===wealthKey&&Date.now()-wealthLoaded<CACHE_TTL)return;
+  wealthKey=key;wealthLoaded=Date.now();const own=++wealthToken;
+  clearWealth('正在读取资产历史…');$('#retry-asset-history').hidden=true;$('#asset-history-detail').setAttribute('aria-busy','true');
+  const valid=()=>own===wealthToken&&current===dataRevision&&period===wealthPeriod&&currency===preferredCurrency();
+  try{const result=await request('/api/assets/history?'+new URLSearchParams({period,currency}));if(!valid())return;if(result.currency!==currency||!Array.isArray(result.series))throw new Error('历史数据口径不匹配');wealth=result;renderWealth();}
+  catch{if(valid()){clearWealth('资产历史暂不可用，请稍后重试。');$('#retry-asset-history').hidden=false;}}
+  finally{if(valid())$('#asset-history-detail').removeAttribute('aria-busy');}
+}
+root.querySelectorAll('[data-wealth-period]').forEach(button=>button.onclick=()=>{if(wealthPeriod===button.dataset.wealthPeriod)return;wealthPeriod=button.dataset.wealthPeriod;sessionStorage.setItem('accufolio.wealth.period',wealthPeriod);renderWealth();loadWealth();});
+root.querySelectorAll('[data-wealth-curve]').forEach(button=>button.onclick=()=>{wealthCurve=button.dataset.wealthCurve;renderWealth();});
+$('#retry-asset-history').onclick=()=>loadWealth(true);
 function renderAccounts(){
   $('#asset-accounts').replaceChildren(...data.accounts.map((account,index)=>{
     const link=node('a',null,'named-account');link.href='/assets?account='+account.id;link.dataset.accountId=account.id;
@@ -28,8 +73,9 @@ function renderAccounts(){
   if(!data.accounts.length)$('#asset-accounts').append(emptyState('还没有账户。让 Agent 按实际用途记录你的银行、现金或投资账户。'));
 }
 function renderAllocation(){
-  const ring=$('#total-allocation-ring');ring.replaceChildren();const total=data.net_assets_usd,complete=data.complete&&Number.isFinite(total),items=data.accounts;
-  if(!complete)ring.append(emptyState('余额或汇率不完整，暂不计算整体占比。'));
+  const ring=$('#total-allocation-ring');ring.replaceChildren();const total=data.net_assets_usd,unsettled=data.settlement_complete===false,complete=data.complete&&!unsettled&&Number.isFinite(total),items=data.accounts;
+  if(unsettled)ring.append(emptyState('交易结算待核对，暂不计算整体占比与目标差额。'));
+  else if(!complete)ring.append(emptyState('余额、行情或汇率不完整，暂不计算整体占比。'));
   else if(total<=0)ring.append(emptyState('暂无正净资产可计算占比。'));
   else if(items.some(item=>item.value_usd<0))ring.append(emptyState('账户含负余额，请查看下方各账户权重。'));
   else{
@@ -38,13 +84,13 @@ function renderAllocation(){
     const center=node('div',null,'ring-center');center.append(node('strong',items.length),node('span','个账户'));ring.append(svg,center);
   }
   $('#total-allocation-legend').replaceChildren(...items.map((account,index)=>{const row=node('div',null,'allocation-row');row.dataset.accountId=account.id;const label=node('span',null,'allocation-name'),dot=node('i',null,'allocation-dot');dot.style.background=colors[index%colors.length];label.append(dot,document.createTextNode(account.name));row.append(label,node('strong',complete&&total>0&&account.value_usd!=null?(account.value_usd/total*100).toFixed(1)+'%':'—'));const target=allocation?.net_worth?.['account:'+account.id];if(target!=null){const difference=complete&&account.value_usd!=null?total*target/100-account.value_usd:null;row.append(node('small',`目标 ${target}%`+(difference==null?'':` · 差额 ${difference>0?'+':''}${money(difference)}`)));}return row;}));
-  $('#assets-allocation-note').textContent=allocationError?'配置目标暂不可用，当前占比仍可查看。':'按各账户总估值计算；投资账户包含证券与账户现金。';
+  $('#assets-allocation-note').textContent=unsettled?'请让 Agent 补充交易与现金流水的结算关联，确认应收应付款后再计算配置。':allocationError?'配置目标暂不可用，当前占比仍可查看。':'按各账户总估值计算；投资账户包含证券与账户现金。';
 }
 function renderAccount(account){
   const cashOnly=!account||account.kind!=='broker'&&account.securities_value_usd===0;$('#account-securities-metric').hidden=cashOnly;$('#account-metrics').dataset.cashOnly=String(cashOnly);$('#account-cash-label').textContent=cashOnly?'原币余额':'账户现金';
   if(!account){for(const id of ['account-value','account-native-balance','account-securities-value'])$('#'+id).textContent='—';for(const id of ['account-purpose','account-balance-date','account-quote-time'])$('#'+id).textContent='';$('#account-kind').textContent='账户';$('#account-value-note').textContent=dataError?'账户数据暂不可用，已清空上次估值。请在设置中刷新重试。':data?'该账户不存在或已归档。':'正在读取账户…';return;}
   $('#account-kind').textContent=[kinds[account.kind]||'账户',account.institution].filter(Boolean).join(' · ');$('#account-purpose').textContent=purposes[account.purpose]||account.purpose||'';$('#account-value').textContent=money(account.value_usd);
-  $('#account-value-note').textContent=cashOnly?(account.balance==null?'现金余额尚未补充，暂不计算折合金额。':'账户余额'+(account.currency===displayCurrency()?'':'折合')+' · '+displayCurrency()):account.balance==null?'现金余额尚未补充；当前仅显示已知估值。':'证券市值与账户现金合计 · '+displayCurrency();
+  $('#account-value-note').textContent=account.settlement_complete===false?'记录估值 · 结算待核对。未知应收应付款尚未确认，请让 Agent 补充结算关联。':cashOnly?(account.balance==null?'现金余额尚未补充，暂不计算折合金额。':'账户余额'+(account.currency===displayCurrency()?'':'折合')+' · '+displayCurrency()):account.balance==null?'现金余额尚未补充；当前仅显示已知估值。':'证券市值与账户现金合计 · '+displayCurrency();
   $('#account-native-balance').textContent=nativeMoney(account.balance,account.currency);$('#account-balance-date').textContent=account.currency+(account.as_of?' · 截至 '+account.as_of:'');$('#account-securities-value').textContent=money(account.securities_value_usd);$('#account-quote-time').textContent=account.quote_timestamp_min>0?formatTimestamp(account.quote_timestamp_min,true)+'（'+timezoneLabel()+'）':account.securities_value_usd===0?'无证券持仓':'行情时间未提供';
 }
 function clearEntries(message){
@@ -84,8 +130,14 @@ async function loadEntries(){
   try{const rows=await request('/api/accounts/'+account+'/cash-entries?expected_revision='+encodeURIComponent(expected));if(!valid())return;entries=rows;renderEntries();}catch{if(!valid())return;journalProblem();}
 }
 function render(){
-  if(!data)return;$('#assets-total-label').textContent='净资产 · '+displayCurrency();$('#assets-total').textContent=data.complete?money(data.net_assets_usd):'—';$('#assets-securities').textContent=money(data.securities_value_usd);$('#assets-cash').textContent=money(data.cash_value_usd);$('#asset-account-count').textContent=data.accounts.length+' 个账户';
-  $('#assets-total-note').textContent=data.complete?'证券持仓市值 + 现金账户余额':data.missing_fx?.length?'缺少 '+data.missing_fx.join('、')+' 汇率，暂不汇总净资产。':data.missing_quotes?.length?'部分股票行情暂不可用，暂不汇总净资产。':'账户数据不完整，暂不汇总净资产。';
+  if(!data)return;const unsettled=data.settlement_complete===false,recordedComplete=data.recorded_complete??data.complete,label=unsettled?'已记录资产估值':'净资产';
+  $('.net-assets-card').setAttribute('aria-label',label);$('#assets-total-label').textContent=label+' · '+displayCurrency();$('#assets-total').textContent=unsettled?(recordedComplete?money(data.recorded_assets_usd):'—'):data.complete?money(data.net_assets_usd):'—';$('#assets-securities').textContent=money(data.securities_value_usd);$('#assets-cash').textContent=money(data.cash_value_usd);$('#asset-account-count').textContent=data.accounts.length+' 个账户';
+  const notes=[];
+  if(unsettled)notes.push('结算待核对，未知应收应付款尚未确认。请让 Agent 补充结算关联'+(data.unmatched_trade_ids?.length?'：交易 #'+data.unmatched_trade_ids.join('、#'):'')+'。');
+  if(data.missing_fx?.length)notes.push('缺少 '+data.missing_fx.join('、')+' 汇率，暂不汇总估值。');
+  else if(data.missing_quotes?.length)notes.push('部分股票行情暂不可用，暂不汇总估值。');
+  else if(!recordedComplete)notes.push('账户数据不完整，暂不汇总估值。');
+  $('#assets-total-note').textContent=notes.length?notes.join(' '):'证券持仓市值 + 现金账户余额';
   $('#assets-allocation-currency').textContent=displayCurrency();$('#assets-fx-note').textContent=currencyNote();$('#assets-warnings').replaceChildren(...(data.warnings||[]).map(w=>node('p',w,'field-hint')));renderAccounts();renderAllocation();showPage();renderEntries();
 }
 async function refresh(){
@@ -96,5 +148,5 @@ async function refresh(){
     render();pageNotify(root,'');
   }catch(error){if(own!==token||current!==dataRevision)return;data=null;dataError=true;$('#assets-total').textContent='—';$('#assets-securities').textContent='—';$('#assets-cash').textContent='—';$('#asset-account-count').textContent='—';$('#assets-total-note').textContent='暂时无法汇总账户，请在设置中刷新重试。';$('#asset-accounts').replaceChildren(emptyState('账户数据暂不可用'));$('#total-allocation-ring').replaceChildren();$('#total-allocation-legend').replaceChildren();$('#assets-warnings').replaceChildren();clearEntries('账户数据暂不可用，请刷新后重试。');showPage();pageNotify(root,error.message);}
 }
-return {activate(){showPage();if(revision!==dataRevision||Date.now()-loaded>CACHE_TTL)refresh();if(!interval)interval=setInterval(refresh,60000);},deactivate(){clearInterval(interval);interval=null;},preferencesChanged:render,back:closeAccount};
+return {activate(){showPage();if(revision!==dataRevision||Date.now()-loaded>CACHE_TTL)refresh();if(!interval)interval=setInterval(()=>{refresh();if(historyDetail)loadWealth();},60000);},deactivate(){clearInterval(interval);interval=null;},preferencesChanged(){render();if(historyDetail){if(wealth&&wealth.currency!==preferredCurrency())clearWealth('正在读取资产历史…');loadWealth();}},back:closeAccount};
 };

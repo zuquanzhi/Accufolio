@@ -21,7 +21,10 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
     today = date.fromisoformat(clock['date'])
     completed = date.fromisoformat(clock['last_completed_session'])
     with db() as con:
+        con.execute('BEGIN')
         trades = [dict(row) for row in con.execute('SELECT * FROM trades WHERE deleted=0 ORDER BY trade_date,id')]
+        cash_entries = [dict(row) for row in con.execute('SELECT * FROM cash_entries ORDER BY entry_date,id')]
+        account_names = {row['id']: row['name'] for row in con.execute('SELECT id,name FROM accounts')}
     valid = [row for row in trades if row['trade_date'] <= today.isoformat()]
     first = date.fromisoformat(valid[0]['trade_date']) if valid else today
     earliest = max(date(1900, 1, 1), today - timedelta(days=30 * 366 - 8))
@@ -71,8 +74,9 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
                                 'available_end': history.get('available_end')})
                 warnings.extend(f'{symbol}：{warning}' for warning in history.get('errors', []) + history.get('warnings', []))
     result = build_dashboard(trades, histories, quotes, start, today, include_history=include_history,
-                             history_end=completed)
+                             history_end=completed, cash_entries=cash_entries)
     result['market'] = clock
+    result['account_names'] = account_names
     result['valuation_basis'] = 'latest_quote'
     result['history_basis'] = 'completed_session_close'
     result['period'] = period
@@ -82,7 +86,8 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
     result['sources'] = sources
     result['truncated'] = period == 'all' and first < earliest
     result['method'] = 'trade_reconstruction_unadjusted'
-    result['method_note'] = '日期按美东交易日计算。历史曲线仅使用已收盘交易日的同日未复权价格，缺失保持断线，末点停在最后完整收盘估值；顶部使用最近行情，两者分别标注。净投入为含手续费的买入支出减卖出净收入，不含现金账户与分红，不是账户净值。'
+    result['method_note'] = '日期按美东交易日计算。持仓曲线使用已收盘交易日的同日未复权价格，缺失保持断线；顶部使用最近行情。证券总回报与美元 XIRR 纳入已归属分红的实际净到账和按记账日生效的冲销。分红现金不加进证券市值，不假设自动再投资；净投入仍为含手续费的买入支出减卖出净收入。此图不是完整账户净值。'
+    warnings.extend(f'分红流水 #{issue["entry_id"]}：{issue["reason"]}。总回报与 XIRR 暂不计算。' for issue in result['dividend_issues'])
     if include_history and result['summary']['holding_count'] and result['end'] != completed.isoformat():
         warnings.append(f'最近已收盘交易日为 {completed.isoformat()}；历史曲线仅到 {result["end"] or "暂无完整收盘数据"}，不使用旧价格补成今天。')
     if result['truncated']:
