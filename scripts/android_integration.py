@@ -168,6 +168,29 @@ def wait_ui(predicate, description, reject_login=False, timeout=50):
     raise AssertionError(('UI not ready',description,last))
 
 
+def enter_server_url(value):
+    # Android's IME can still be moving the caret after its first focus event.
+    # Pace injected key events and verify the actual field before connecting.
+    for _ in range(2):
+        ui=screen()
+        entry=next(n for n in ui.iter('node') if n.attrib.get('class')=='android.widget.EditText')
+        tap(entry)
+        wait_ui(lambda tree:any(n.attrib.get('class')=='android.widget.EditText' and
+                                n.attrib.get('focused')=='true' for n in tree.iter('node')),
+                'server address focus')
+        time.sleep(.5)
+        adb('shell','input','keyevent','123')
+        adb('shell','input','keyevent',*(['67']*(len(text(entry))+2)))
+        for character in value:
+            adb('shell','input','text',character)
+            time.sleep(.06)
+        adb('shell','input','keyevent','4')
+        ui=screen()
+        if any(n.attrib.get('class')=='android.widget.EditText' and text(n)==value for n in ui.iter('node')):
+            return ui
+    raise AssertionError(('Server address input did not match',items(ui)))
+
+
 def wait_page(route):
     distinctive={'/assets':'净资产','/investments':'持仓市值','/records':'搜索记录','/discover':'策略回测','/settings':'展示币种'}[route]
     def ready(ui):
@@ -239,12 +262,8 @@ def run(apk):
             subprocess.run(['adb', 'install', '-r', apk], check=True)
             adb('shell', 'am', 'start', '-W', '-n', 'io.accufolio.app/.MainActivity')
             time.sleep(2)
-            ui = screen()
-            entry = next(n for n in ui.iter('node') if n.attrib.get('class') == 'android.widget.EditText')
-            tap(entry)
-            adb('shell', 'input', 'text', f'https://10.0.2.2:{PORT}')
-            adb('shell', 'input', 'keyevent', '4')
-            tap(named(screen(), '连接'))
+            ui=enter_server_url(f'https://10.0.2.2:{PORT}')
+            tap(named(ui, '连接'))
             ui=wait_ui(lambda tree:'登录' in items(tree),'initial authentication')
             password = [n for n in ui.iter('node') if n.attrib.get('class') == 'android.widget.EditText'][-1]
             tap(password);adb('shell', 'input', 'text', 'android-integration-test')
