@@ -109,24 +109,19 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(exported['trades'][0]['price'],100)
         self.assertNotIn('test-password',str(exported))
 
-    def test_monitoring_deduplication(self):
-        from packages.providers import Quote
-        h={'X-Accufolio':'1'}
-        self.assertEqual(self.client.put('/api/watchlist',auth=self.auth,headers=h,json={'symbol':'QQQM','threshold':2}).status_code,200)
-        with patch('apps.api.extended.get_quote',return_value=QuoteResult(Quote('QQQM',100,-3,'test',0),False,())), patch('apps.api.extended.evaluate_calm',return_value={'status':'skipped','reason':'fixture'}), patch('packages.notifications.send_webhook',return_value=204):
-            for _ in range(2): self.client.post('/api/scan',auth=self.auth,headers=h)
-        self.assertEqual(len(self.client.get('/api/alerts',auth=self.auth).json()),1)
-        self.assertEqual(self.client.get('/api/daily',auth=self.auth).json()[0]['scans'],2)
-        self.assertEqual(self.client.get('/api/health',auth=self.auth).json()['database'],'ok')
+    def test_retired_monitoring_endpoints_are_absent(self):
+        for method, path in [('get','watchlist'),('put','watchlist'),('delete','watchlist/QQQM'),
+                             ('post','scan'),('get','alerts'),('get','signals'),('get','daily'),
+                             ('get','notifications/status'),('post','notifications/retry')]:
+            with self.subTest(method=method,path=path):
+                response = getattr(self.client,method)('/api/'+path,auth=self.auth,headers={'X-Accufolio':'1'})
+                self.assertEqual(response.status_code,404)
 
-    def test_notification_and_signal_routes_require_authentication(self):
-        for route in ['/api/signals', '/api/notifications/status']:
-            self.assertEqual(self.client.get(route).status_code, 401)
-        self.assertEqual(self.client.post('/api/notifications/retry', auth=self.auth).status_code, 403)
-        with patch.dict(os.environ, {'ACCUFOLIO_WEBHOOK_URL': '', 'ACCUFOLIO_WEBHOOK_TOKEN': ''}), patch('packages.notifications.send_webhook') as send:
-            self.assertFalse(self.client.get('/api/notifications/status', auth=self.auth).json()['configured'])
-            response = self.client.post('/api/notifications/retry', auth=self.auth, headers={'X-Accufolio': '1'})
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json()['requeued'], 0)
-            self.assertEqual(self.client.get('/api/signals', auth=self.auth).json(), [])
-            send.assert_not_called()
+    def test_health_reports_backups_and_requires_authentication(self):
+        self.assertEqual(self.client.get('/api/health').status_code,401)
+        result=self.client.get('/api/health',auth=self.auth).json()
+        self.assertEqual(result['database'],'ok')
+        self.assertEqual(result['backup']['status'],'not_created')
+        self.assertEqual(result['worker']['status'],'not_started')
+        self.assertNotIn('last_scan',result)
+        self.assertNotIn('notifications',result)

@@ -10,6 +10,7 @@ from apps.api.main import Trade, add_trade
 class McpTests(unittest.TestCase):
     def test_tool_registration_and_local_reads(self):
         names = {tool.name for tool in asyncio.run(mcp.list_tools())}
+        self.assertTrue({'list_alerts','set_watchlist','trigger_scan'}.isdisjoint(names))
         self.assertTrue({'get_summary','list_trades','get_market_quote','add_trade','undo_trade_change'}.issubset(names))
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'ACCUFOLIO_DB': str(Path(tmp)/'test.db')}):
             add_trade(Trade(symbol='qqqm', trade_date='2024-01-01', shares=1, price=100), actor='test')

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     with tempfile.TemporaryDirectory() as temp:
         sock=socket.socket();sock.bind(('127.0.0.1',0));port=sock.getsockname()[1];sock.close()
-        env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'browser-test','ACCUFOLIO_DB':str(Path(temp)/'db.sqlite'),'ACCUFOLIO_WEBHOOK_URL':''}
+        env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'browser-test','ACCUFOLIO_DB':str(Path(temp)/'db.sqlite')}
         process=subprocess.Popen([sys.executable,'-m','uvicorn','apps.api.main:app','--port',str(port)],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         try:
             base=f'http://127.0.0.1:{port}'
@@ -60,28 +60,8 @@ def main():
                 history_reply={'bars':historical_bars,'source':'Test history','cached':False,'stale':False,'adjustment':'unadjusted','adjustment_note':'未复权收盘价；不包含分红再投资。','errors':[]}
                 history_status=[200]
                 page.route('**/api/history?*',lambda route:route.fulfill(status=history_status[0],json=history_reply if history_status[0]==200 else {'detail':'行情来源暂不可用'}))
-                watch_reply=[{'symbol':symbol,'threshold':2} for symbol in ['QQQM','SPY','TLT']]
-                signal_reply=[]
-                notification_reply={'configured':False,'valid':True,'pending':0,'sending':0,'sent':0,'failed':0,'last_error':None}
-                notification_status=[200];retry_status=[200];scan_requests=[];retry_requests=[]
-                monitoring_requests=[]
-                page.on('request',lambda req:monitoring_requests.append(req.url) if any('/api/'+part in req.url for part in ['watchlist','alerts','daily','signals','notifications/status']) else None)
-                page.route('**/api/watchlist',lambda route:route.fulfill(json=watch_reply))
-                page.route('**/api/signals',lambda route:route.fulfill(json=signal_reply))
-                page.route('**/api/notifications/status',lambda route:route.fulfill(status=notification_status[0],json=notification_reply))
-                def fake_scan(route):
-                    assert route.request.method=='POST' and route.request.headers.get('x-accufolio')=='1'
-                    scan_requests.append(route.request.url);route.fulfill(json=signal_reply)
-                def fake_retry(route):
-                    assert route.request.method=='POST' and route.request.headers.get('x-accufolio')=='1'
-                    retry_requests.append(route.request.url)
-                    if retry_status[0]!=200:
-                        route.fulfill(status=retry_status[0],json={'detail':'https://notify.example/secret?token=DO_NOT_DISPLAY'});return
-                    count=notification_reply['failed']
-                    notification_reply.update(sent=notification_reply['sent']+count,failed=0,last_error=None)
-                    route.fulfill(json={'requeued':count,**notification_reply})
-                page.route('**/api/scan',fake_scan)
-                page.route('**/api/notifications/retry',fake_retry)
+                retired_requests=[]
+                page.on('request',lambda req:retired_requests.append(req.url) if any('/api/'+part in req.url for part in ['watchlist','alerts','daily','signals','notifications','scan']) else None)
                 page.goto(base)
                 def tab(name):
                     page.evaluate('window.__documentMarker=1')
@@ -99,10 +79,6 @@ def main():
                     page.wait_for_url(base+'/discover?tool='+tool)
                     expect(page.locator(f'[data-discover-panel="{tool}"]')).to_be_visible()
                     assert page.evaluate('window.__documentMarker')==1
-                def scan_and_notifications():
-                    discovery('watchlist');page.locator('#scan-now').click()
-                    expect(page.locator('#scan-now')).to_be_enabled()
-                    discovery('notifications')
                 page.wait_for_url(base+'/assets')
                 expect(page.locator('#assets-total')).to_have_text('$0.00')
                 expect(page.locator('#value')).to_have_count(0)
@@ -138,12 +114,11 @@ def main():
                 page.evaluate('invalidateData()')
                 expect(page.locator('#value')).to_have_text('$0.00')
                 # Discovery drafts survive a real navigation, reload and browser back.
-                before_monitoring=len(monitoring_requests)
                 tab('discover');expect(page.locator('#discover-home')).to_be_visible()
                 expect(page.locator('#view-discover form:visible')).to_have_count(0)
-                expect(page.locator('[data-discover-tool]')).to_have_count(6)
+                expect(page.locator('[data-discover-tool]')).to_have_count(2)
                 page.wait_for_timeout(200)
-                assert len(monitoring_requests)==before_monitoring,monitoring_requests
+                assert not retired_requests,retired_requests
                 discovery('backtest')
                 page.go_back();expect(page.locator('#discover-home')).to_be_visible()
                 page.go_forward();expect(page.locator('#backtest-panel')).to_be_visible()
@@ -151,7 +126,7 @@ def main():
                 expect(page.locator('#discover-home')).to_be_visible()
                 assert page.evaluate('window.accufolioBack()') is False
                 discovery('backtest')
-                assert len(monitoring_requests)==before_monitoring,monitoring_requests
+                assert not retired_requests,retired_requests
                 page.locator('#backtest [name=start]').fill('2025-01-01')
                 page.locator('#backtest [name=end]').fill('2025-04-01')
                 page.locator('#run-history').click()
@@ -201,66 +176,13 @@ def main():
                 tab('investments');page.go_back();page.wait_for_url(base+'/discover?tool=backtest')
                 expect(page.locator('#backtest [name=bars]')).to_have_value('2025-01-02,100\n2025-02-03,50\n2025-03-03,100')
                 page.locator('#run-manual').click();expect(page.locator('#backtest-result')).to_contain_text('固定月投')
-                discovery('watchlist')
-                expect(page.locator('#monitoring')).to_be_visible();expect(page.locator('#backtest-panel')).to_be_hidden()
-                expect(page.locator('#watch-items')).to_contain_text('等待首次检查')
-                discovery('notifications')
-                expect(page.locator('#notification-status')).to_contain_text('尚未开启')
-                expect(page.locator('#notification-note')).to_contain_text('ACCUFOLIO_WEBHOOK_URL')
-                expect(page.locator('#retry-notifications')).to_be_hidden()
-                expect(page.locator('#watch-items')).to_contain_text('等待首次检查')
-                signal_reply.extend([
-                    {'symbol':'QQQM','movement_level':1,'calm':{'status':'clear','as_of':'2025-03-03'}},
-                    {'symbol':'SPY','movement_level':2,'calm':{'status':'skipped','reason':'需要至少 20 个共同交易日'}},
-                    {'symbol':'TLT','movement_level':3,'calm':{'status':'triggered','as_of':'2025-03-03'}},
-                ])
-                notification_reply.update(configured=True,sent=4)
-                scan_and_notifications()
-                expect(page.locator('#notification-status')).to_contain_text('已发送 4')
-                for symbol,level in [('QQQM',1),('SPY',2),('TLT',3)]:expect(page.locator('#watch-items')).to_contain_text(f'{symbol} · L{level}')
-                expect(page.locator('#watch-items')).to_contain_text('暂无退潮信号')
-                expect(page.locator('#watch-items')).to_contain_text('需要至少 20 个共同交易日')
-                expect(page.locator('#watch-items')).to_contain_text('退潮信号已触发')
-                notification_reply.update(pending=2,last_error='https://notify.example/secret?token=DO_NOT_DISPLAY')
-                scan_and_notifications()
-                expect(page.locator('#notification-status')).to_contain_text('等待发送 2')
-                expect(page.locator('#notification-note')).to_contain_text('自动重试')
-                expect(page.locator('#retry-notifications')).to_be_hidden()
-                notification_reply.update(pending=0,failed=2)
-                scan_and_notifications()
-                expect(page.locator('#notification-status')).to_contain_text('失败 2')
-                expect(page.locator('#retry-notifications')).to_be_visible()
-                expect(page.locator('#notification-delivery')).not_to_contain_text('DO_NOT_DISPLAY')
-                expect(page.locator('#notification-delivery')).not_to_contain_text('notify.example')
-                retry_status[0]=503
-                page.locator('#retry-notifications').click()
-                expect(page.locator('#notification-note')).to_contain_text('暂时无法重试')
-                expect(page.locator('#notification-delivery')).not_to_contain_text('DO_NOT_DISPLAY')
-                expect(page.locator('#retry-notifications')).to_be_enabled()
-                retry_status[0]=200
-                page.locator('#retry-notifications').click()
-                expect(page.locator('#notification-status')).to_contain_text('已发送 6')
-                expect(page.locator('#retry-notifications')).to_be_hidden()
-                assert len(retry_requests)==2 and len(scan_requests)==3
-                notification_reply.update(valid=False,last_error='https://notify.example/secret?token=DO_NOT_DISPLAY')
-                scan_and_notifications()
-                expect(page.locator('#notification-status')).to_contain_text('配置需要检查')
-                expect(page.locator('#notification-delivery')).not_to_contain_text('DO_NOT_DISPLAY')
-                expect(page.locator('#retry-notifications')).to_be_hidden()
-                notification_status[0]=503
-                scan_and_notifications()
-                expect(page.locator('#notification-status')).to_contain_text('暂时无法读取')
-                expect(page.locator('#watch-items')).to_contain_text('QQQM · L1')
-                notification_status[0]=200;notification_reply.update(valid=True,last_error=None)
-                scan_and_notifications()
-                expect(page.locator('#notification-status')).to_contain_text('已发送 6')
                 for width in [320,390,430]:
                     page.set_viewport_size({'width':width,'height':844})
                     for view in ['assets','investments','records','discover','settings']:
                         tab(view)
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'{view} overflows at {width}'
                     tab('discover')
-                    for tool in ['backtest','income','watchlist','alerts','notifications','daily']:
+                    for tool in ['backtest','income']:
                         discovery(tool)
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (tool,width)
                         page.locator('#discover-back').click();expect(page.locator('#discover-home')).to_be_visible()
@@ -318,12 +240,11 @@ def main():
                 versions[0]='test-v2';page.evaluate('checkVersion()');expect(page.locator('#notice')).to_contain_text('新版本')
                 tab('discover');discovery('backtest');page.locator('#backtest [name=bars]').fill('');page.locator('#backtest [name=monthly]').fill('400')
                 page.wait_for_function('appVersion !== null');versions[0]='test-v3';page.evaluate('checkVersion()');expect(page.locator('#notice')).to_contain_text('新版本')
-                # A threshold-only watch draft is preserved too, across a reload and navigation.
-                discovery('watchlist');page.locator('#watch-form [name=threshold]').fill('3')
-                tab('records');tab('discover');discovery('watchlist');expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
-                page.reload();expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
-                page.locator('#watch-form [name=threshold]').fill('2')
-                discovery('backtest')
+                # Only analysis drafts protect updates; a removed watch draft cannot block one.
+                page.evaluate("sessionStorage.setItem('accufolio.draft.watch.v1',JSON.stringify({values:{threshold:'3'}}))")
+                tab('records');tab('discover');discovery('backtest')
+                expect(page.locator('#backtest [name=monthly]')).to_have_value('400')
+                page.reload();expect(page.locator('#backtest [name=monthly]')).to_have_value('400')
                 page.locator('#backtest [name=monthly]').fill('300')
                 assert not page.evaluate('hasDrafts()'), 'No editable draft should remain'
                 versions[0]='test-v4'
@@ -333,7 +254,7 @@ def main():
                 # All routes can be opened independently without a preceding home visit.
                 for view in ['assets','investments','records','discover','settings']:
                     page.goto(base+'/'+view);expect(page.locator('#view-'+view)).to_be_visible();expect(page.locator('.app-view')).to_have_count(1)
-                for tool in ['backtest','income','watchlist','alerts','notifications','daily']:
+                for tool in ['backtest','income']:
                     page.goto(base+'/discover?tool='+tool)
                     expect(page.locator(f'[data-discover-panel="{tool}"]')).to_be_visible()
                     expect(page.locator('#discover-home')).to_be_hidden()
@@ -342,6 +263,12 @@ def main():
                     expect(page.locator('#discover-home')).to_be_visible()
                     page.wait_for_url(base+'/discover')
                     assert page.evaluate('window.__directDiscoverMarker')==29
+                # Bookmarks for retired tools return to discovery without obsolete API traffic.
+                for tool in ['watchlist','alerts','notifications','daily']:
+                    page.goto(base+'/discover?tool='+tool)
+                    page.wait_for_url(base+'/discover');expect(page.locator('#discover-home')).to_be_visible()
+                    expect(page.locator('[data-discover-tool]')).to_have_count(2)
+                assert not retired_requests,retired_requests
                 if os.environ.get('ACCUFOLIO_SCREENSHOT'):page.screenshot(path=os.environ['ACCUFOLIO_SCREENSHOT'],full_page=True)
                 for version in ['1.3.0','2.0.0']:
                     native=browser.new_context(user_agent='Mozilla/5.0 AccufolioAndroid/'+version,viewport={'width':390,'height':844})
@@ -355,7 +282,7 @@ def main():
                     native.close()
                 assert not errors, errors
                 browser.close()
-            print('Browser tests passed: separate assets/investments screens, read-only records, two-stage dashboard loading, stable-document routes/scroll, warmed offline navigation, delayed response isolation, automatic history backtests/cancellation, signal and notification status, editable draft protection and version reload, mobile layouts and native settings links')
+            print('Browser tests passed: separate assets/investments screens, read-only records, two-stage dashboard loading, stable-document routes/scroll, warmed offline navigation, delayed response isolation, automatic history backtests/cancellation, retired-tool removal, editable draft protection and version reload, mobile layouts and native settings links')
         finally:
             process.terminate();process.wait(timeout=15)
 

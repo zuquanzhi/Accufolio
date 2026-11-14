@@ -38,12 +38,12 @@ async function ensureDisplayRates(force=false){
 }
 function setDisplayCurrency(code){localStorage.setItem(CURRENCY_KEY,DISPLAY_CURRENCIES.includes(code)?code:'USD');refreshPreferences();ensureDisplayRates();}
 function workerStatus(worker){
-  if(!worker)return '后台检查状态未提供';
-  const names={idle:'后台检查正常',running:'后台正在检查',failed:'后台检查失败',stale:'后台检查已停滞',stopped:'后台检查已停止',not_started:'后台检查尚未启动'};
+  if(!worker)return '自动备份服务状态未提供';
+  const names={idle:'自动备份服务正常',running:'自动备份服务运行中',failed:'自动备份服务失败',stale:'自动备份服务已停滞',stopped:'自动备份服务已停止',not_started:'自动备份服务尚未启动'};
   const stamp=worker.heartbeat_at?new Date(worker.heartbeat_at):null;
-  return (names[worker.status]||'后台检查状态未知')+(stamp&&Number.isFinite(stamp.getTime())?' · 最近活动 '+formatTimestamp(stamp)+'（'+timezoneLabel()+'）':'')+(['failed','stale','stopped','not_started'].includes(worker.status)?'。请检查数据服务，期间可能无法生成提醒。':'');
+  return (names[worker.status]||'自动备份服务状态未知')+(stamp&&Number.isFinite(stamp.getTime())?' · 最近活动 '+formatTimestamp(stamp)+'（'+timezoneLabel()+'）':'')+(['failed','stale','stopped','not_started'].includes(worker.status)?'。请检查服务日志与最近的备份结果。':'');
 }
-const DRAFT_KEYS = {backtest:'accufolio.draft.backtest.v1',watch:'accufolio.draft.watch.v1'};
+const DRAFT_KEYS = {backtest:'accufolio.draft.backtest.v1'};
 const formSnapshot = form => JSON.stringify([...new FormData(form).entries()]);
 let appVersion = null;
 window.AccufolioPages = {};
@@ -63,7 +63,7 @@ function readDraft(name) {
 }
 function saveDraft(name,data) {sessionStorage.setItem(DRAFT_KEYS[name],JSON.stringify(data));}
 function clearDraft(name) {sessionStorage.removeItem(DRAFT_KEYS[name]);}
-function hasDrafts() {return ['backtest','watch'].some(name=>Boolean(readDraft(name)))||[...pageEntries.values()].some(entry=>entry.controller.hasDrafts?.());}
+function hasDrafts() {return Boolean(readDraft('backtest'))||[...pageEntries.values()].some(entry=>entry.controller.hasDrafts?.());}
 async function request(path,options={}) {
   const method=(options.method||'GET').toUpperCase();
   const cacheable=method==='GET' && path!=='/api/version';

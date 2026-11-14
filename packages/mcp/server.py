@@ -62,14 +62,8 @@ def undo_trade_change(audit_id: int) -> dict:
     return undo(audit_id,actor='mcp')
 
 @mcp.tool()
-def list_alerts() -> list[dict]:
-    """Read recent price and data-source alerts."""
-    from apps.api.extended import alerts
-    return alerts(actor='mcp')
-
-@mcp.tool()
 def get_health() -> dict:
-    """Check database health and last scan time."""
+    """Check database integrity, automatic backup status and maintenance heartbeat."""
     from apps.api.extended import health
     return health(actor='mcp')
 
@@ -180,20 +174,6 @@ def set_settings(display_currency: str, market_timezone: str, expected_revision:
     from apps.api.preferences import set_settings as save
     require_write()
     return save(display_currency,market_timezone,expected_revision,idempotency_key,dry_run)
-
-@mcp.tool()
-def set_watchlist(symbol: str, threshold: float = 2) -> dict:
-    """Set a symbol's absolute daily price-change alert threshold in percent."""
-    from apps.api.extended import Watch, set_watchlist as save
-    require_write()
-    return save(Watch(symbol=symbol,threshold=threshold), actor='mcp')
-
-@mcp.tool()
-def trigger_scan() -> list[dict]:
-    """Scan the watchlist immediately and persist any new alerts."""
-    from apps.api.extended import scan_all
-    require_write()
-    return scan_all()
 
 if __name__ == '__main__':
     mcp.run(transport='stdio')

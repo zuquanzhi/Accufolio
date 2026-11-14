@@ -1,4 +1,4 @@
-"""Background observability and retention without losing pending notifications."""
+"""Backup integrity, retries and heartbeat after retiring price monitoring."""
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 import os
@@ -10,9 +10,7 @@ from unittest.mock import patch
 
 from apps.api.main import db
 from apps.api import maintenance
-from apps.api.extended import health, scan_all
-from packages import notifications
-from packages.providers import Quote, QuoteResult
+from apps.api.extended import health
 
 
 class CycleStop:
@@ -31,11 +29,10 @@ class MaintenanceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)
         self.env = patch.dict(os.environ, {'ACCUFOLIO_DB': str(self.base / 'test.db'),
-                              'ACCUFOLIO_WEBHOOK_URL': '', 'ACCUFOLIO_PASSWORD': 'test'})
+                                          'ACCUFOLIO_PASSWORD': 'test'})
         self.env.start()
 
     def tearDown(self):
-        maintenance._worker_context.active = False
         self.env.stop()
         self.temp.cleanup()
 
@@ -46,26 +43,15 @@ class MaintenanceTests(unittest.TestCase):
         state = health(actor='test')['worker']
         self.assertEqual(state['status'], 'running')
         self.assertEqual(state['stale_after_seconds'], 900)
-        self.assertIsNotNone(state['scan_started_at'])
+        self.assertIsNotNone(state['cycle_started_at'])
         old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         with db() as con:
-            con.execute('UPDATE background_worker SET heartbeat_at=?', (old,))
+            con.execute('UPDATE backup_worker SET heartbeat_at=?', (old,))
         self.assertEqual(maintenance.worker_status()['status'], 'stale')
-        maintenance.mark_worker('failed', '自动监测未完成')
+        maintenance.mark_worker('failed', '自动备份未完成')
         self.assertEqual(maintenance.worker_status()['status'], 'failed')
         maintenance.mark_worker('idle')
         self.assertIsNotNone(maintenance.worker_status()['last_success_at'])
-
-    def test_manual_scan_cannot_hide_stalled_worker(self):
-        maintenance.worker_started(300)
-        old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-        with db() as con:
-            con.execute('UPDATE background_worker SET heartbeat_at=?', (old,))
-        maintenance.update_scan_progress()
-        self.assertEqual(maintenance.worker_status()['status'], 'stale')
-        maintenance._worker_context.active = True
-        maintenance.update_scan_progress()
-        self.assertNotEqual(maintenance.worker_status()['status'], 'stale')
 
     def test_daily_backup_rotates_only_verified_automatic_files(self):
         directory = self.base / 'backups'
@@ -95,70 +81,93 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         self.assertFalse(list(path.parent.glob('*.tmp')))
 
-    def test_alert_age_and_count_keep_every_unsent_outbox_entry(self):
-        with db() as con:
-            notifications.ensure_schema(con)
-            for index in range(1, 13):
-                old = index <= 6
-                con.execute('INSERT INTO alerts(id,symbol,message,dedupe,ts) VALUES(?,?,?,?,?)',
-                            (index, 'TEST', 'test', str(index), '2020-01-01 00:00:00' if old else '2099-01-01 00:00:00'))
-            for index, status in [(1, 'pending'), (2, 'sending'), (3, 'failed'), (4, 'sent'), (12, 'sent')]:
-                con.execute('INSERT INTO notification_outbox(alert_id,event_id,payload,status) VALUES(?,?,?,?)',
-                            (index, str(index), '{}', status))
-        removed = maintenance.cleanup_alerts(retention_days=365, maximum=4)
-        self.assertEqual(removed, 5)
-        with db() as con:
-            self.assertEqual([r[0] for r in con.execute('SELECT id FROM alerts ORDER BY id')], [1, 2, 3, 9, 10, 11, 12])
-            self.assertEqual([r[0] for r in con.execute('SELECT alert_id FROM notification_outbox ORDER BY alert_id')], [1, 2, 3, 12])
-
-    def test_backup_failure_does_not_block_scan_and_failure_is_durable(self):
+    def test_backup_failure_is_visible_and_contains_no_exception_secrets(self):
         with patch('apps.api.maintenance.daily_backup', side_effect=RuntimeError('secret value')), \
-             patch('apps.api.extended.scan_all', return_value=[]) as scan, \
              patch('logging.exception'):
             maintenance.run_worker(CycleStop(), 300)
-        scan.assert_called_once()
-        state = maintenance.worker_status()
-        self.assertEqual(state['status'], 'stopped')
-        self.assertEqual(state['last_error'], '自动备份未完成')
+        state = health(actor='test')
+        self.assertEqual(state['worker']['status'], 'stopped')
+        self.assertEqual(state['worker']['last_error'], '自动备份未完成')
+        self.assertEqual(state['backup']['status'], 'failed')
+        self.assertIsNone(state['backup']['last_success_at'])
         self.assertNotIn('secret', str(state))
-        with db() as con:
-            alerts = list(con.execute('SELECT * FROM alerts'))
-        self.assertEqual(len(alerts), 1)
-        self.assertEqual(alerts[0]['symbol'], 'SYSTEM')
 
-    def test_scan_failure_notifies_once_per_day_and_next_cycle_recovers(self):
-        with patch.dict(os.environ, {'ACCUFOLIO_WEBHOOK_URL': 'https://notify.example.test'}), \
-             patch('apps.api.maintenance.daily_backup') as backup, \
-             patch('apps.api.extended.scan_all', side_effect=[RuntimeError('private'), RuntimeError('private'), []]), \
-             patch('packages.notifications.send_webhook', return_value=204) as send, \
+    def test_failed_backup_retries_then_only_one_successful_copy_per_day(self):
+        states = []
+        real_backup = maintenance.daily_backup
+        def attempt(day):
+            states.append(maintenance.backup_status())
+            if len(states) < 3:
+                raise RuntimeError('private')
+            return real_backup(day)
+        with patch('apps.api.maintenance.daily_backup', side_effect=attempt) as backup, \
              patch('logging.exception'):
-            maintenance.run_worker(CycleStop(3), 300)
-        backup.assert_called_once()
-        send.assert_called_once()
+            maintenance.run_worker(CycleStop(5), 300)
+        self.assertEqual(backup.call_count, 3)
+        self.assertEqual([state['status'] for state in states], ['not_created','failed','failed'])
+        state = maintenance.backup_status()
+        self.assertEqual(state['status'], 'ok')
+        self.assertIsNone(state['last_error'])
+        self.assertEqual(state['last_backup_date'],datetime.now(timezone.utc).date().isoformat())
+        with closing(sqlite3.connect(self.base / 'backups' / state['filename'])) as con:
+            self.assertEqual(con.execute('PRAGMA quick_check').fetchone()[0],'ok')
         self.assertIsNotNone(maintenance.worker_status()['last_success_at'])
+
+    def test_failed_next_backup_preserves_last_success(self):
+        maintenance.record_backup('2026-01-01')
+        successful = maintenance.backup_status()
+        with patch('apps.api.maintenance.daily_backup', side_effect=RuntimeError('private')), \
+             patch('logging.exception'):
+            maintenance.run_worker(CycleStop(),300)
+        state = maintenance.backup_status()
+        self.assertEqual(state['status'],'failed')
+        self.assertEqual(state['last_backup_date'],'2026-01-01')
+        self.assertEqual(state['last_success_at'],successful['last_success_at'])
 
     def test_temporary_initial_database_failure_does_not_kill_worker(self):
         original = maintenance.worker_started
-        with patch('apps.api.maintenance.worker_started', side_effect=[RuntimeError('busy'), None]) as start, \
-             patch('apps.api.maintenance.daily_backup'), \
-             patch('apps.api.extended.scan_all', return_value=[]) as scan, \
+        calls = []
+        def start(interval):
+            calls.append(interval)
+            if len(calls) == 1:
+                raise RuntimeError('busy')
+            return original(interval)
+        with patch('apps.api.maintenance.worker_started', side_effect=start), \
+             patch('apps.api.maintenance.daily_backup') as backup, \
              patch('logging.exception'):
             maintenance.run_worker(CycleStop(2), 300)
-        self.assertEqual(start.call_count, 2)
-        scan.assert_called_once()
+        self.assertEqual(calls,[300,300])
+        backup.assert_called_once()
+        self.assertEqual(maintenance.backup_status()['status'],'ok')
 
-    def test_valid_fallback_quote_still_triggers_movement_rule(self):
+    def test_worker_never_fetches_market_data_or_delivers_old_webhook_queue(self):
+        # A 2.1 database may retain old tables and pending events. Starting the
+        # dashboard must neither delete those records nor try delivering them.
         with db() as con:
+            con.execute('CREATE TABLE watchlist(symbol TEXT PRIMARY KEY,threshold REAL)')
             con.execute("INSERT INTO watchlist VALUES('QQQM',2)")
-        with patch('apps.api.extended.get_quote', return_value=QuoteResult(Quote('QQQM', 100, 4.2, 'Tencent', 0), True, ('primary source failed',))), \
-             patch('apps.api.extended.evaluate_calm', return_value={'status': 'skipped', 'reason': 'fixture'}), \
-             patch('packages.core.market_time.et_today', return_value=date(2026, 1, 2)):
-            result = scan_all()
-        self.assertEqual(result[0]['movement_level'], 2)
+            con.execute('CREATE TABLE notification_outbox(id INTEGER PRIMARY KEY,status TEXT)')
+            con.execute("INSERT INTO notification_outbox VALUES(1,'pending')")
+            con.execute('CREATE TABLE alerts(id INTEGER PRIMARY KEY,message TEXT)')
+            con.execute("INSERT INTO alerts VALUES(1,'preserve')")
+            con.execute('CREATE TABLE scans(id INTEGER PRIMARY KEY)')
+        with patch.dict(os.environ,{'ACCUFOLIO_WEBHOOK_URL':'https://notify.example.test'}), \
+             patch('packages.providers.get_quote') as quote, \
+             patch('packages.providers.history.sina_daily') as history, \
+             patch('socket.create_connection',side_effect=AssertionError('No background network')) as network:
+            maintenance.run_worker(CycleStop(2),300)
+            result=health(actor='test')
+        quote.assert_not_called();history.assert_not_called();network.assert_not_called()
+        self.assertEqual(result['backup']['status'],'ok')
         with db() as con:
-            rows = list(con.execute('SELECT dedupe FROM alerts'))
-        self.assertEqual(len(rows), 2)
-        self.assertTrue(all(row[0].startswith('2026-01-02:') for row in rows))
+            self.assertEqual(con.execute('SELECT status FROM notification_outbox').fetchone()[0],'pending')
+            self.assertEqual(con.execute('SELECT message FROM alerts').fetchone()[0],'preserve')
+            self.assertEqual(con.execute('SELECT count(*) FROM accounts').fetchone()[0],1)
+
+    def test_new_database_has_no_retired_monitoring_tables(self):
+        with db() as con:
+            tables={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertTrue({'watchlist','scans','alerts','notification_outbox','monitoring_state'}.isdisjoint(tables))
 
 
 if __name__ == '__main__':

@@ -22,15 +22,15 @@ Asset and transaction data is read-only in Web, PWA, and Android, backed by your
 ![Accufolio desktop and mobile preview](assets/previews/product-poster.jpg)
 
 <details>
-<summary>More views: allocation, strategy curves, monitoring, and mobile access</summary>
+<summary>More views: allocation, strategy curves, income estimates, and mobile access</summary>
 <br>
 <img src="assets/previews/mobile-pages.jpg" alt="Main mobile pages" width="1000">
 <img src="assets/previews/mobile-income.png" alt="Monthly take-home income estimate" width="280">
 <img src="assets/previews/mobile-investments.png" alt="Investments overview" width="280">
 <img src="assets/previews/mobile-allocation.png" alt="Securities allocation and holdings" width="280">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
-<img src="assets/previews/web-monitoring.png" alt="Price monitoring" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
+<img src="assets/previews/mobile-account.png" alt="Account journal with original-currency running balances" width="280">
 <img src="assets/previews/mobile-settings.png" alt="Mobile settings" width="280">
 <img src="assets/previews/android-welcome.png" alt="Android client server connection welcome screen" width="280">
 </details>
@@ -41,10 +41,10 @@ The device frames are illustrative; the screenshots show the running application
 
 | Page | Purpose |
 |---|---|
-| **Assets** | Default home: net assets, named accounts, cash balances, and account allocation. Open an account to inspect its journal. |
+| **Assets** | Default home: net assets, named accounts, cash balances, and account allocation. Inspect running balances, transfers, and reversals in each account. |
 | **Investments** | Securities holdings, realized and unrealized gains, historical curves, and separate allocation/performance details. |
-| **Records** | Completed securities trades with account, currency, fees, and strategy. |
-| **Discover** | Grouped entries for backtesting, take-home income, watchlist, alerts, notifications, and daily summaries. |
+| **Records** | Search trades and filter by account, side, and month, preserving original currency, fees, and strategy. |
+| **Discover** | Independent tools for strategy backtesting and take-home income estimates. |
 | **Settings** | Display currency, timezone, login, backups, connection, and updates. |
 
 Cash balances sum journal entries; securities are calculated per account and symbol before aggregation. Targets store weights only. Choose USD, CNY, HKD, or EUR: current values use the latest reference rate, while historical points use rates published by that date. Missing quotes or exchange rates remain unavailable.
@@ -100,7 +100,7 @@ Remembered login lasts up to 90 days using a revocable token, never a stored pas
 
 ## Data and scope
 
-SQLite online backups and JSON data exports support data ownership. Automatic daily backups retain 30 copies by default. Worker heartbeat, failures, and delivery status are visible; retention protects undelivered notifications. MCP database permissions belong to its local process.
+SQLite online backups and JSON data exports support data ownership. Automatic daily backups retain 30 copies by default. Settings show automatic backup time, worker heartbeat, and failures. MCP database permissions belong to its local process.
 
 Current support covers USD US-stock trades, original-currency cash accounts, and four display currencies. Unsupported FX conversions remain unavailable. Cash entries can record interest, dividends, and fees; securities XIRR does not yet include cash dividends. Unadjusted history may be affected by splits. Broker execution, multiple users, remote MCP, and market-data redistribution are outside the current scope. Offline startup, complete account NAV, and liabilities are not implemented. See the [roadmap](guides/roadmap.md).
 

@@ -3,9 +3,9 @@
 The fixtures patch quote, daily-price and FX providers inside this disposable
 process; no production database or external provider is read or changed.
 """
-import base64,json,os,socket,subprocess,sys,tempfile,time
+import os,socket,subprocess,sys,tempfile,time
 from pathlib import Path
-from urllib.request import Request,urlopen
+from urllib.request import urlopen
 from playwright.sync_api import sync_playwright,expect
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -15,7 +15,6 @@ from datetime import date, timedelta, datetime
 import math
 import uvicorn
 import apps.api.main as api
-import apps.api.extended as monitoring
 import apps.api.dashboard as dashboard
 import apps.api.history as history_api
 import apps.api.fx as fx_api
@@ -33,7 +32,7 @@ market_time.et_today=lambda:TODAY
 dashboard.market_clock=lambda:clock
 prices={'QQQM':204.75,'VOO':520.40,'AAPL':225.60}
 quote=lambda symbol: QuoteResult(Quote(symbol,prices.get(symbol,204.75),.84,'demo',instant.timestamp()),False,())
-api.get_quote=dashboard.get_quote=monitoring.get_quote=providers.get_quote=quote
+api.get_quote=dashboard.get_quote=providers.get_quote=quote
 
 def daily(symbol,start=None,end=None):
     first=date(2026,1,1);length=(TODAY-first).days;bars=[]
@@ -57,7 +56,6 @@ def historic_fx(days,base='USD'):
                        'rate_dates':{c:day.isoformat() for c in ['USD','CNY','HKD','EUR']},'source':'DEMO'})
     return {'base':base,'points':points,'cached':True,'stale':False,'errors':[],'source':'DEMO'}
 fx_api.get_historical_fx=historic_fx
-monitoring.evaluate_calm=lambda symbol: {'status':'skipped','reason':'示例数据，不计算退潮信号'}
 
 # Every amount below is invented for documentation, never a user's financial data.
 with api.db() as con:pass
@@ -86,15 +84,12 @@ def main():
     OUT.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory() as temp:
         sock=socket.socket();sock.bind(('127.0.0.1',0));port=sock.getsockname()[1];sock.close()
-        env={**os.environ,'ACCUFOLIO_WEBHOOK_URL':'','ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preview-only',
+        env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preview-only',
              'ACCUFOLIO_DB':str(Path(temp)/'demo.db'),'PREVIEW_PORT':str(port)}
         log_path=Path(temp)/'preview.log'
         with log_path.open('w',encoding='utf-8') as log:
             process=subprocess.Popen([sys.executable,'-c',DEMO_SERVER],cwd=ROOT,env=env,stdout=log,stderr=log)
         base=f'http://127.0.0.1:{port}'
-        def api(path,data,method='POST'):
-            req=Request(base+path,data=json.dumps(data).encode(),method=method,headers={'Authorization':'Basic '+base64.b64encode(b'admin:preview-only').decode(),'Content-Type':'application/json','X-Accufolio':'1'})
-            with urlopen(req,timeout=15) as response:return json.load(response)
         try:
             for _ in range(150):
                 try:urlopen(base+'/manifest.webmanifest',timeout=1).close();break
@@ -102,7 +97,6 @@ def main():
                     if process.poll() is not None:raise RuntimeError(log_path.read_text(encoding='utf-8'))
                     time.sleep(.1)
             else:raise RuntimeError('Preview server did not start: '+log_path.read_text(encoding='utf-8'))
-            api('/api/watchlist',{'symbol':'QQQM','threshold':.5},'PUT');api('/api/scan',{})
             with sync_playwright() as p:
                 browser=p.chromium.launch(headless=True,**({'channel':'msedge'} if os.name=='nt' else {}))
                 context=browser.new_context(viewport={'width':1440,'height':1160},device_scale_factor=1,reduced_motion='reduce')
@@ -126,8 +120,6 @@ def main():
                 page.locator('#backtest [name=start]').fill('2025-01-01');page.locator('#backtest [name=end]').fill('2025-12-31');page.locator('#run-history').click()
                 expect(page.locator('#backtest-chart .chart-line')).to_have_count(5)
                 page.set_viewport_size({'width':1440,'height':2100});page.locator('.backtest-detail > summary').click();page.locator('#backtest-panel').screenshot(path=str(OUT/'web-backtest.png'));page.locator('.backtest-detail > summary').click()
-                page.locator('#discover-back').click();expect(page.locator('#discover-home')).to_be_visible();page.locator('[data-discover-tool=watchlist]').click();expect(page.locator('#watch-items')).to_contain_text('QQQM')
-                page.locator('#monitoring').screenshot(path=str(OUT/'web-monitoring.png'))
                 page.set_viewport_size({'width':390,'height':844})
                 tab('assets');capture('mobile-overview.png')
                 page.locator('#asset-accounts [data-account-id="2"]').click();expect(page.locator('#account-cash-entries')).to_contain_text('本月工资结余');capture('mobile-account.png')

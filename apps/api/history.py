@@ -131,7 +131,7 @@ def _range(start, end):
 
 
 def get_history(symbol: str, start=None, end=None) -> dict:
-    """Internal read API for backtesting/monitoring, independent of HTTP auth.
+    """Internal read API for backtesting and valuation, independent of HTTP auth.
 
     Data is cached six hours. Expired bars may be returned after a provider
     failure but always carry stale=True and errors; callers must show this.

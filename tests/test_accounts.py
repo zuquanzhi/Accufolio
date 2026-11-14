@@ -139,6 +139,47 @@ class AccountTests(unittest.TestCase):
                 self.assertEqual(getattr(self.client,method)(path,auth=('admin','account-test')).status_code,405)
         self.assertEqual(self.client.get('/api/accounts',auth=('admin','account-test')).status_code,200)
 
+    def test_cash_journal_expected_revision_is_optional_and_non_negative(self):
+        from apps.api.accounts import list_cash_entries
+        account=self.cash(self.account(),100)['account']
+        url='/api/accounts/'+str(account['id'])+'/cash-entries'
+        auth=('admin','account-test')
+        matching=self.client.get(url,params={'expected_revision':account['revision']},auth=auth)
+        self.assertEqual(matching.status_code,200)
+        self.assertEqual(len(matching.json()),1)
+        self.assertEqual(matching.json(),self.client.get(url,auth=auth).json())
+        self.assertEqual(matching.json(),list_cash_entries(account['id'],actor='mcp'))
+        stale=self.client.get(url,params={'expected_revision':account['revision']-1},auth=auth)
+        self.assertEqual(stale.status_code,409)
+        self.assertEqual(stale.json()['detail'],'账户数据已更新，请刷新重试')
+        for invalid in ['-1','invalid','1.5']:
+            with self.subTest(revision=invalid):
+                self.assertEqual(self.client.get(url,params={'expected_revision':invalid},auth=auth).status_code,422)
+
+    def test_cash_journal_revision_and_entries_share_one_snapshot(self):
+        from apps.api.accounts import _account
+        account=self.cash(self.account(),100)['account']
+        with closing(sqlite3.connect(self.path)) as con:
+            con.execute('PRAGMA journal_mode=WAL')
+        committed=[]
+        def read_then_commit(con,account_id,*args,**kwargs):
+            original=_account(con,account_id,*args,**kwargs)
+            # Commit an actual separate writer after the revision SELECT but
+            # before the journal SELECT. WAL allows this without blocking.
+            with closing(sqlite3.connect(self.path,timeout=.1)) as writer,writer:
+                writer.execute("INSERT INTO cash_entries(account_id,entry_date,kind,amount,currency) VALUES(?,'2026-01-06','deposit',50,'USD')",(account_id,))
+                writer.execute('UPDATE accounts SET revision=revision+1 WHERE id=?',(account_id,))
+            committed.append(True)
+            return original
+        url='/api/accounts/'+str(account['id'])+'/cash-entries'
+        with patch('apps.api.accounts._account',side_effect=read_then_commit):
+            response=self.client.get(url,params={'expected_revision':account['revision']},auth=('admin','account-test'))
+        self.assertEqual(committed,[True])
+        self.assertEqual(response.status_code,200)
+        self.assertEqual([row['amount'] for row in response.json()],[100])
+        self.assertEqual(self.client.get(url,params={'expected_revision':account['revision']},auth=('admin','account-test')).status_code,409)
+        self.assertEqual(len(self.client.get(url,auth=('admin','account-test')).json()),2)
+
     def test_zero_cash_does_not_require_fx(self):
         self.account('Empty foreign account','JPY')
         rates={'base':'USD','rates':{'USD':1},'as_of':None,'source':'test','available':False,'stale':False}

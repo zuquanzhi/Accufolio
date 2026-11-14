@@ -3,7 +3,6 @@
     <div>
       <button type="button" id="discover-back" class="discover-back" hidden><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></svg><span>发现</span></button>
       <h1 id="discover-title" tabindex="-1">发现</h1>
-      <p id="discover-description" hidden></p>
     </div>
   </div>
 
@@ -18,54 +17,11 @@
         <span class="discover-row-label">税后收入</span><span class="discover-row-meta">工资估算</span><svg class="icon discover-chevron" aria-hidden="true"><use href="#icon-arrow"/></svg>
       </a>
     </nav>
-    <nav class="discover-group" aria-label="行情与提醒">
-      <a class="discover-row" href="/discover?tool=watchlist" data-discover-tool="watchlist">
-        <span class="discover-icon discover-icon-market"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3v4m0 9v5M12 5v5m0 7v2M18 2v4m0 8v6"/><rect x="4" y="7" width="4" height="9" rx="1"/><rect x="10" y="10" width="4" height="7" rx="1"/><rect x="16" y="6" width="4" height="8" rx="1"/></svg></span>
-        <span class="discover-row-label">行情关注</span><span class="discover-row-meta" id="discover-watch-status">自选标的</span><svg class="icon discover-chevron" aria-hidden="true"><use href="#icon-arrow"/></svg>
-      </a>
-      <a class="discover-row" href="/discover?tool=alerts" data-discover-tool="alerts">
-        <span class="discover-icon discover-icon-alert"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M8 18H5l2-4V9a5 5 0 0 1 10 0v5l2 4H8m2 3h4"/></svg></span>
-        <span class="discover-row-label">提醒记录</span><span class="discover-row-meta" id="discover-alert-status">价格与信号</span><svg class="icon discover-chevron" aria-hidden="true"><use href="#icon-arrow"/></svg>
-      </a>
-    </nav>
-    <nav class="discover-group" aria-label="消息与摘要">
-      <a class="discover-row" href="/discover?tool=notifications" data-discover-tool="notifications">
-        <span class="discover-icon discover-icon-notification"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11.5A7.5 7.5 0 0 1 12 19a10 10 0 0 1-4-.8L3 20l1.8-4.5A7 7 0 0 1 4 12a7.5 7.5 0 0 1 8-7.5 7.5 7.5 0 0 1 8 7Z"/><path d="M8 11.5h.01m4 0h.01m4 0h.01"/></svg></span>
-        <span class="discover-row-label">消息通知</span><span class="discover-row-meta" id="discover-notification-status">投递状态</span><svg class="icon discover-chevron" aria-hidden="true"><use href="#icon-arrow"/></svg>
-      </a>
-      <a class="discover-row" href="/discover?tool=daily" data-discover-tool="daily">
-        <span class="discover-icon discover-icon-daily"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 10h16m-12 4h3m-3 3h7"/></svg></span>
-        <span class="discover-row-label">每日摘要</span><span class="discover-row-meta">检查汇总</span><svg class="icon discover-chevron" aria-hidden="true"><use href="#icon-arrow"/></svg>
-      </a>
-    </nav>
   </div>
 
   <section class="panel discover-detail" id="backtest-panel" data-discover-panel="backtest" hidden aria-label="策略回测"><div class="section-head"><div><h2>找到适合自己的节奏</h2><p>用历史数据，比较四种定投方式。</p></div></div><form id="backtest"><label>标的<input name="symbol" value="QQQM" required maxlength="15" pattern="[A-Za-z0-9.\-]+" autocapitalize="characters"></label><label>每月投入 · USD<input name="monthly" type="number" min="0.01" step="any" value="300" required inputmode="decimal"></label><label>开始日期<input name="start" type="date" required></label><label>结束日期<input name="end" type="date" required></label><button type="submit" id="run-history" class="primary full-width">获取行情并回测</button><details id="manual-data" class="full-width"><summary>手动数据</summary><label class="csv">历史收盘价<textarea name="bars" rows="5" placeholder="2024-01-02,100&#10;2024-02-01,102"></textarea><span class="field-hint">备用方式：每行填写日期和收盘价，以英文逗号分隔。</span></label><button type="button" id="run-manual">使用手动数据回测</button></details></form><p id="history-status" class="field-hint" role="status" aria-live="polite"></p><p id="history-method" class="field-hint"></p><p id="backtest-error" class="form-error" role="alert"></p><div id="backtest-result" aria-live="polite"></div><p class="panel-footnote">历史表现不代表未来收益。未投入资金计为现金。</p></section>
 
   <section class="discover-detail" id="income-panel" data-discover-panel="income" hidden aria-label="税后收入">
     <div id="income-calculator"></div>
-  </section>
-
-  <section class="panel discover-detail" id="monitoring" data-discover-panel="watchlist" hidden aria-label="行情关注">
-    <div class="section-head"><div><h2>关注价格变化</h2><p>管理自选标的与提醒阈值，行情可能有延迟。</p></div></div>
-    <p id="worker-status" class="field-hint" role="status">正在读取后台检查状态…</p>
-    <form id="watch-form"><label>标的<input name="symbol" required maxlength="15" value="QQQM"></label><label>L1 涨跌幅阈值 · %<input name="threshold" type="number" min="0.01" max="100" step="any" value="2" required inputmode="decimal"></label><button class="primary">添加关注</button><button type="button" id="scan-now">检查行情</button></form>
-    <div id="watch-items" aria-live="polite"></div>
-    <details><summary>提醒规则</summary><p class="field-hint">L1 / L2 / L3 分别对应绝对涨跌幅达到设定阈值的 1 / 2 / 3 倍。退潮信号使用最近 20 个共同交易日：标的距区间高点回撤至少 8%，且 VIX 自同期高点回落至少 25%。数据不足时不生成信号。</p></details>
-  </section>
-
-  <section class="panel discover-detail" id="alerts-panel" data-discover-panel="alerts" hidden aria-label="提醒记录">
-    <div class="section-head"><div><h2>最近提醒</h2><p>价格变化、退潮信号与数据服务提醒。</p></div></div>
-    <div id="alert-items" aria-live="polite"></div>
-  </section>
-
-  <section class="panel discover-detail" id="notifications-panel" data-discover-panel="notifications" hidden aria-label="消息通知">
-    <div class="section-head"><div><h2>应用外消息</h2><p>查看提醒的发送状态，重试未送达的消息。</p></div></div>
-    <div class="trade-row" id="notification-delivery"><div class="trade-body"><strong>通知状态</strong><small id="notification-status" role="status" aria-live="polite">正在读取状态…</small><small id="notification-note"></small></div><button type="button" class="text-button" id="retry-notifications" hidden>重试</button></div>
-  </section>
-
-  <section class="panel discover-detail" id="daily-panel" data-discover-panel="daily" hidden aria-label="每日摘要">
-    <div class="section-head"><div><h2>每日检查摘要</h2><p>按标的汇总检查次数与价格区间，日期以 UTC 为准。</p></div></div>
-    <div id="daily-items" class="table-wrap" aria-live="polite"></div>
   </section>
 </section>

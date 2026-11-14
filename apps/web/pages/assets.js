@@ -7,12 +7,13 @@ const nativeMoney=(amount,currency)=>amount==null?'待补充':new Intl.NumberFor
 const kinds={broker:'券商账户',bank:'银行账户',ewallet:'电子钱包',provident:'公积金账户',other:'账户'};
 const purposes={investing:'投资',savings:'储蓄',emergency:'应急',spending:'日常支出',housing_fund:'公积金'};
 const events={balance_open:'期初余额',deposit:'转入',withdraw:'转出',interest:'利息',transfer_in:'账户转入',transfer_out:'账户转出',fx_in:'换汇转入',fx_out:'换汇转出',fee:'费用',dividend:'分红'};
-let data=null,allocation=null,allocationError=false,revision=-1,loaded=0,token=0,interval=null,selected=null,entriesToken=0,entriesKey='',entriesLoaded=0,entries=null;
+let data=null,dataError=false,allocation=null,allocationError=false,revision=-1,loaded=0,token=0,interval=null,selected=null,entriesToken=0,entriesKey='',entriesLoaded=0,entries=null,entriesAccount=null,entriesRevision=null;
+const journalSyncMessage='流水与账户数据暂未同步，请刷新后重试。';
 function currentAccount(){const raw=new URLSearchParams(location.search).get('account');return raw&&/^\d+$/.test(raw)?Number(raw):null;}
 function showPage(){
   selected=currentAccount();$('#assets-overview').hidden=selected!==null;$('#asset-account-detail').hidden=selected===null;$('#account-back').hidden=selected===null;
-  const account=data?.accounts.find(row=>row.id===selected);$('#assets-title').textContent=selected===null?'资产':account?.name||'账户明细';document.title=$('#assets-title').textContent+' · Accufolio';
-  if(selected!==null){renderAccount(account);loadEntries();}
+  const account=data?.accounts.find(row=>row.id===selected);$('#assets-title').textContent=selected===null?'资产':account?.name||'账户明细';if(root.isConnected)document.title=$('#assets-title').textContent+' · Accufolio';
+  if(selected!==null){renderAccount(account);if(account)loadEntries();else clearEntries(dataError?'账户数据暂不可用，请刷新后重试。':data?'该账户当前不可查看。':'正在读取账户…');}
 }
 function openAccount(id){history.pushState({page:'assets',accountDetail:true},'','/assets?account='+id);showPage();window.scrollTo({top:0,behavior:'instant'});$('#assets-title').focus({preventScroll:true});}
 function closeAccount(){if(selected===null)return false;if(history.state?.accountDetail)history.back();else{history.replaceState({page:'assets'},'','/assets');showPage();window.scrollTo({top:0,behavior:'instant'});}return true;}
@@ -40,17 +41,47 @@ function renderAllocation(){
   $('#assets-allocation-note').textContent=allocationError?'配置目标暂不可用，当前占比仍可查看。':'按各账户总估值计算；投资账户包含证券与账户现金。';
 }
 function renderAccount(account){
-  if(!account){for(const id of ['account-value','account-native-balance','account-securities-value'])$('#'+id).textContent='—';$('#account-value-note').textContent=data?'该账户不存在或已被移除。':'正在读取账户…';return;}
+  const cashOnly=!account||account.kind!=='broker'&&account.securities_value_usd===0;$('#account-securities-metric').hidden=cashOnly;$('#account-metrics').dataset.cashOnly=String(cashOnly);$('#account-cash-label').textContent=cashOnly?'原币余额':'账户现金';
+  if(!account){for(const id of ['account-value','account-native-balance','account-securities-value'])$('#'+id).textContent='—';for(const id of ['account-purpose','account-balance-date','account-quote-time'])$('#'+id).textContent='';$('#account-kind').textContent='账户';$('#account-value-note').textContent=dataError?'账户数据暂不可用，已清空上次估值。请在设置中刷新重试。':data?'该账户不存在或已归档。':'正在读取账户…';return;}
   $('#account-kind').textContent=[kinds[account.kind]||'账户',account.institution].filter(Boolean).join(' · ');$('#account-purpose').textContent=purposes[account.purpose]||account.purpose||'';$('#account-value').textContent=money(account.value_usd);
-  $('#account-value-note').textContent=account.balance==null?'现金余额尚未补充；当前仅显示已知估值。':'证券市值与账户现金合计 · '+displayCurrency();
+  $('#account-value-note').textContent=cashOnly?(account.balance==null?'现金余额尚未补充，暂不计算折合金额。':'账户余额'+(account.currency===displayCurrency()?'':'折合')+' · '+displayCurrency()):account.balance==null?'现金余额尚未补充；当前仅显示已知估值。':'证券市值与账户现金合计 · '+displayCurrency();
   $('#account-native-balance').textContent=nativeMoney(account.balance,account.currency);$('#account-balance-date').textContent=account.currency+(account.as_of?' · 截至 '+account.as_of:'');$('#account-securities-value').textContent=money(account.securities_value_usd);$('#account-quote-time').textContent=account.quote_timestamp_min>0?formatTimestamp(account.quote_timestamp_min,true)+'（'+timezoneLabel()+'）':account.securities_value_usd===0?'无证券持仓':'行情时间未提供';
 }
+function clearEntries(message){
+  ++entriesToken;entries=null;entriesAccount=null;entriesRevision=null;entriesKey='';$('#account-cash-entries').replaceChildren(emptyState(message));
+}
+function journalProblem(){
+  // Keep the attempted key/time so a preference render cannot start a retry loop.
+  // Manual refresh changes dataRevision; the next automatic cycle also retries.
+  entries=null;entriesRevision=null;$('#account-cash-entries').replaceChildren(emptyState(journalSyncMessage));
+}
 function renderEntries(){
-  if(!entries)return;$('#account-cash-entries').replaceChildren(...entries.map(entry=>{const row=textRow(events[entry.kind]||entry.kind,`${entry.entry_date||entry.effective_date||entry.event_date}${entry.note?' · '+entry.note:''}`);const value=node('strong',(entry.amount>0?'+':'')+nativeMoney(entry.amount,entry.currency),'cash-entry-amount');value.dataset.sign=entry.amount>0?'positive':'negative';row.append(value);return row;}));if(!entries.length)$('#account-cash-entries').append(emptyState('尚未记录资金流水。'));
+  if(!entries||entriesAccount!==selected)return;
+  const account=data?.accounts.find(account=>account.id===selected);
+  if(!account||(account.revision??null)!==entriesRevision){journalProblem();return;}
+  // The endpoint returns the entire account journal. Reconstruct native-currency
+  // balances in the same date/id order as the ledger, then display newest first.
+  if(!Array.isArray(entries)||entries.some(entry=>entry.currency!==account.currency||!Number.isFinite(entry.amount))||account.entry_count!=null&&entries.length!==account.entry_count){journalProblem();return;}
+  const ordered=[...entries].sort((a,b)=>a.entry_date.localeCompare(b.entry_date)||a.id-b.id);
+  const balances=new Map(),reversed=new Map();let total=0,correction=0;
+  for(const entry of ordered){const adjusted=entry.amount-correction,next=total+adjusted;correction=(next-total)-adjusted;total=next;balances.set(entry.id,total);if(entry.reverses_entry_id!=null)reversed.set(entry.reverses_entry_id,entry.id);}
+  if(!Number.isFinite(account.balance)||!Number.isFinite(total)||Math.abs(total-account.balance)>1e-8+Math.abs(account.balance)*Number.EPSILON*4){journalProblem();return;}
+  $('#account-cash-entries').replaceChildren(...ordered.reverse().map(entry=>{
+    const title=entry.reverses_entry_id!=null?'冲销流水 #'+entry.reverses_entry_id:(events[entry.kind]||entry.kind)+(reversed.has(entry.id)?' · 已冲销':'');
+    const detail=[entry.entry_date,'#'+entry.id,entry.currency];
+    if(entry.counter_account_id!=null){const counter=data?.accounts.find(account=>account.id===entry.counter_account_id);detail.push((entry.amount>0?'来自 ':'转至 ')+(counter?.name||'账户 #'+entry.counter_account_id));}
+    if(reversed.has(entry.id))detail.push('由流水 #'+reversed.get(entry.id)+' 冲销');
+    if(entry.symbol)detail.push(entry.symbol);
+    if(entry.note)detail.push(entry.note);
+    const row=textRow(title,detail.join(' · '));row.dataset.entryId=entry.id;
+    const amounts=node('div',null,'cash-entry-values'),value=node('strong',(entry.amount>0?'+':'')+nativeMoney(entry.amount,entry.currency),'cash-entry-amount');value.dataset.sign=entry.amount>0?'positive':entry.amount<0?'negative':'neutral';
+    const balance=node('small','余额 '+(balances.get(entry.id)==null?'—':nativeMoney(balances.get(entry.id),entry.currency)),'cash-entry-balance');amounts.append(value,balance);row.append(amounts);return row;
+  }));if(!entries.length)$('#account-cash-entries').append(emptyState('尚未记录资金流水。'));
 }
 async function loadEntries(){
-  if(selected===null)return;const key=selected+'|'+dataRevision;if(key===entriesKey&&Date.now()-entriesLoaded<CACHE_TTL)return;entriesKey=key;entriesLoaded=Date.now();entries=null;$('#account-cash-entries').replaceChildren(emptyState('正在读取流水…'));const own=++entriesToken,account=selected;
-  try{const rows=await request('/api/accounts/'+account+'/cash-entries');if(own!==entriesToken||selected!==account)return;entries=rows;renderEntries();}catch{if(own!==entriesToken||selected!==account)return;entriesKey='';$('#account-cash-entries').replaceChildren(emptyState('暂时无法读取资金流水，请稍后重试。'));}
+  if(selected===null)return;const snapshot=data?.accounts.find(account=>account.id===selected);if(!snapshot)return;const expected=snapshot.revision??null,key=selected+'|'+expected+'|'+dataRevision;if(key===entriesKey&&Date.now()-entriesLoaded<CACHE_TTL)return;entriesKey=key;entriesLoaded=Date.now();entries=null;entriesAccount=selected;entriesRevision=expected;$('#account-cash-entries').replaceChildren(emptyState('正在读取流水…'));const own=++entriesToken,account=selected,current=dataRevision;
+  const valid=()=>own===entriesToken&&selected===account&&current===dataRevision&&data?.accounts.some(row=>row.id===account&&(row.revision??null)===expected);
+  try{const rows=await request('/api/accounts/'+account+'/cash-entries'+(expected==null?'':'?expected_revision='+encodeURIComponent(expected)));if(!valid())return;entries=rows;renderEntries();}catch{if(!valid())return;journalProblem();}
 }
 function render(){
   if(!data)return;$('#assets-total-label').textContent='净资产 · '+displayCurrency();$('#assets-total').textContent=data.complete?money(data.net_assets_usd):'—';$('#assets-securities').textContent=money(data.securities_value_usd);$('#assets-cash').textContent=money(data.cash_value_usd);$('#asset-account-count').textContent=data.accounts.length+' 个账户';
@@ -59,11 +90,11 @@ function render(){
 }
 async function refresh(){
   const own=++token,current=dataRevision;revision=current;loaded=Date.now();
-  try{const [result,targetResult]=await Promise.all([request('/api/assets'),request('/api/allocation').then(value=>({value})).catch(()=>({error:true}))]);if(own!==token||current!==dataRevision)return;data=result;allocation=targetResult.value||null;allocationError=!!targetResult.error;
+  try{const [result,targetResult]=await Promise.all([request('/api/assets'),request('/api/allocation').then(value=>({value})).catch(()=>({error:true}))]);if(own!==token||current!==dataRevision)return;data=result;dataError=false;allocation=targetResult.value||null;allocationError=!!targetResult.error;
     if(result.fx?.rates&&result.fx.source!=='identity'){fxData=result.fx;fxChecked=Date.now();refreshPreferences();}
     if(preferredCurrency()!=='USD'&&!(fxData?.rates?.[preferredCurrency()]>0))ensureDisplayRates(true);
     render();pageNotify(root,'');
-  }catch(error){if(own!==token||current!==dataRevision)return;data=null;$('#assets-total').textContent='—';$('#assets-securities').textContent='—';$('#assets-cash').textContent='—';$('#assets-total-note').textContent='暂时无法汇总账户，请在设置中刷新重试。';$('#asset-accounts').replaceChildren(emptyState('账户数据暂不可用'));$('#total-allocation-ring').replaceChildren();$('#total-allocation-legend').replaceChildren();pageNotify(root,error.message);}
+  }catch(error){if(own!==token||current!==dataRevision)return;data=null;dataError=true;$('#assets-total').textContent='—';$('#assets-securities').textContent='—';$('#assets-cash').textContent='—';$('#asset-account-count').textContent='—';$('#assets-total-note').textContent='暂时无法汇总账户，请在设置中刷新重试。';$('#asset-accounts').replaceChildren(emptyState('账户数据暂不可用'));$('#total-allocation-ring').replaceChildren();$('#total-allocation-legend').replaceChildren();$('#assets-warnings').replaceChildren();clearEntries('账户数据暂不可用，请刷新后重试。');showPage();pageNotify(root,error.message);}
 }
 return {activate(){showPage();if(revision!==dataRevision||Date.now()-loaded>CACHE_TTL)refresh();if(!interval)interval=setInterval(refresh,60000);},deactivate(){clearInterval(interval);interval=null;},preferencesChanged:render,back:closeAccount};
 };

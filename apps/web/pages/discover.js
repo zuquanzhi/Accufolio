@@ -2,36 +2,28 @@
 window.AccufolioPages.discover=function(root){
 const $=selector=>root.querySelector(selector);
 const $$=selector=>[...root.querySelectorAll(selector)];
-const notify=message=>pageNotify(root,message);
-let interval=null, seenRevision=-1, lastLoaded=0;
 const backtestForm=$('#backtest');
 const today=new Date();const localDate=day=>new Date(day.getTime()-day.getTimezoneOffset()*60000).toISOString().slice(0,10);
 const yearAgo=new Date(today);yearAgo.setFullYear(yearAgo.getFullYear()-1);
 backtestForm.elements.symbol.value=currentSymbol();backtestForm.elements.start.value=localDate(yearAgo);backtestForm.elements.end.value=localDate(today);
 backtestForm.elements.start.max=localDate(today);backtestForm.elements.end.max=localDate(today);
 const backtestBaseline=formSnapshot(backtestForm);
-const watchBaseline=formSnapshot($('#watch-form'));
 function persistDiscovery(){
-  for(const [name,form,baseline] of [['backtest',$('#backtest'),backtestBaseline],['watch',$('#watch-form'),watchBaseline]]){
-    if(formSnapshot(form)!==baseline)saveDraft(name,{values:Object.fromEntries(new FormData(form))});else clearDraft(name);
-  }
+  if(formSnapshot(backtestForm)!==backtestBaseline)saveDraft('backtest',{values:Object.fromEntries(new FormData(backtestForm))});else clearDraft('backtest');
 }
-for(const [name,selector] of [['backtest','#backtest'],['watch','#watch-form']]){
-  const draft=readDraft(name);if(draft){for(const [key,value] of Object.entries(draft.values||{}))if($(selector).elements[key])$(selector).elements[key].value=value;}
-  $(selector).addEventListener('input',persistDiscovery);$(selector).addEventListener('change',persistDiscovery);
-}
+const draft=readDraft('backtest');if(draft){for(const [key,value] of Object.entries(draft.values||{}))if(backtestForm.elements[key])backtestForm.elements[key].value=value;}
+backtestForm.addEventListener('input',persistDiscovery);backtestForm.addEventListener('change',persistDiscovery);
 if(backtestForm.elements.bars.value.trim())$('#manual-data').open=true;
-const toolNames={backtest:'策略回测',income:'税后收入',watchlist:'行情关注',alerts:'提醒记录',notifications:'消息通知',daily:'每日摘要'};
-const monitoringTools=new Set(['watchlist','alerts','notifications','daily']);
+const toolNames={backtest:'策略回测',income:'税后收入'};
 let selected='',active=false,income=null;
 const scrolls=new Map();
-function requestedTool(){const name=new URLSearchParams(location.search).get('tool');return Object.hasOwn(toolNames,name)?name:'';}
+function requestedTool(){
+  const name=new URLSearchParams(location.search).get('tool');
+  if(Object.hasOwn(toolNames,name))return name;
+  if(name)history.replaceState({page:'discover'},'','/discover');
+  return '';
+}
 function syncActivity(){
-  clearInterval(interval);interval=null;
-  if(active&&monitoringTools.has(selected)){
-    if(seenRevision!==dataRevision||Date.now()-lastLoaded>CACHE_TTL)loadMonitoring();
-    interval=setInterval(loadMonitoring,60000);
-  }
   if(active&&selected==='backtest')loadBacktestFx();
 }
 function showTool(){
@@ -65,7 +57,7 @@ $$('[data-discover-tool]').forEach(link=>link.onclick=event=>{
   event.preventDefault();openTool(link.dataset.discoverTool);
 });
 $('#discover-back').onclick=closeTool;
-let runToken=0, activeRequest=null, backtestChart=null,savedBacktest=null,savedMonitoring=null;
+let runToken=0, activeRequest=null, backtestChart=null,savedBacktest=null;
 function clearBacktestResult(){savedBacktest=null;backtestChart?.destroy();backtestChart=null;$('#backtest-result').replaceChildren();}
 function setBacktestBusy(busy){$('#run-history').disabled=busy;$('#run-manual').disabled=busy;$('#backtest').setAttribute('aria-busy',String(busy));}
 async function backtestRequest(path,options,signal){
@@ -137,61 +129,5 @@ async function runBacktest(manual=false){
 backtestForm.onsubmit=event=>{event.preventDefault();runBacktest();};
 $('#run-manual').onclick=()=>runBacktest(true);
 backtestForm.addEventListener('input',()=>{if($('#backtest-result').childElementCount){clearBacktestResult();$('#history-status').textContent='参数已修改，请重新回测。';$('#history-method').textContent='';}if(activeRequest){++runToken;activeRequest.abort();activeRequest=null;setBacktestBusy(false);$('#history-status').textContent='输入已更改，请重新开始回测。';}});
-let monitoringToken=0, retryingNotifications=false;
-function renderWatchlist(watchlist,signals){
-  const state=new Map((signals||[]).map(item=>[item.symbol,item]));
-  $('#watch-items').replaceChildren(...watchlist.map(item=>{
-    const signal=state.get(item.symbol),level=Number(signal?.movement_level),calm=signal?.calm;
-    const title=item.symbol+(level>=1&&level<=3?` · L${level}`:'');
-    let detail=`L1 阈值 ${item.threshold}%`;
-    if(signals===null)detail+=' · 规则状态暂不可用';
-    else if(!signal)detail+=' · 等待首次检查';
-    else{
-      if(!level)detail+=' · 暂无等级信号';
-      if(calm?.status==='triggered')detail+=' · 退潮信号已触发';
-      else if(calm?.status==='clear')detail+=' · 暂无退潮信号';
-      else detail+=' · 退潮信号暂不可用'+(calm?.reason?'：'+calm.reason:'');
-      if(calm?.as_of)detail+=`（截至 ${calm.as_of}）`;
-    }
-    return textRow(title,detail,'移除',async()=>{await request('/api/watchlist/'+encodeURIComponent(item.symbol),{method:'DELETE'});await loadMonitoring();});
-  }));
-  if(!watchlist.length)$('#watch-items').append(emptyState('添加一个标的，开始关注价格变化。'));
-}
-function renderNotificationStatus(status){
-  const retry=$('#retry-notifications');retry.hidden=true;retry.disabled=retryingNotifications;
-  const note=$('#notification-note');note.textContent='';
-  if(!status){$('#notification-status').textContent='暂时无法读取通知状态';return;}
-  if(!status.configured){$('#notification-status').textContent='尚未开启 · 提醒仍保存在这里';note.textContent='在部署环境设置 ACCUFOLIO_WEBHOOK_URL，即可开启通知。';return;}
-  if(!status.valid){$('#notification-status').textContent='通知配置需要检查';note.textContent='请在部署环境检查 Webhook 配置后重试。';return;}
-  const counts=[['sent','已发送'],['pending','等待发送'],['sending','发送中'],['failed','失败']].filter(([key])=>Number(status[key])>0).map(([key,label])=>`${label} ${Number(status[key])}`);
-  $('#notification-status').textContent=counts.length?counts.join(' · '):'已启用，等待下一条提醒';
-  if(Number(status.failed)>0){note.textContent='部分通知未能送达，可以手动重试。';retry.hidden=false;}
-  else if(status.last_error&&Number(status.pending)>0)note.textContent='暂未送达的通知会自动重试。';
-  // Never render transport errors: they may contain an endpoint or credential.
-}
-async function loadMonitoring(){
-  const revision=dataRevision,token=++monitoringToken;seenRevision=revision;lastLoaded=Date.now();
-  const results=await Promise.allSettled(['/api/watchlist','/api/alerts','/api/daily','/api/signals','/api/notifications/status','/api/health'].map(path=>request(path)));
-  if(revision!==dataRevision||token!==monitoringToken)return;
-  const values=results.map(result=>result.status==='fulfilled'?result.value:null);savedMonitoring=values;renderMonitoring(values);
-}
-function renderMonitoring([watchlist,alerts,daily,signals,delivery,health]){
-  $('#worker-status').textContent=workerStatus(health?.worker);
-  $('#worker-status').dataset.state=health?.worker?.status||'unknown';
-  if(watchlist)renderWatchlist(watchlist,signals);else $('#watch-items').replaceChildren(emptyState('暂时无法读取关注列表。'));
-  $('#alert-items').replaceChildren(...(alerts||[]).map(item=>textRow(item.symbol,`${formatTimestamp(item.ts)}（${timezoneLabel()}） · ${item.message}`)));
-  if(!alerts?.length)$('#alert-items').append(emptyState(alerts?'暂无已记录的提醒。':'暂时无法读取行情提醒。'));
-  $('#daily-items').replaceChildren(...(daily||[]).slice(0,15).map(item=>textRow(`${item.day} · ${item.symbol}`,`检查 ${item.scans} 次 · 失败 ${item.failures} 次 · 最低 ${item.low==null?'—':money(item.low)} / 最高 ${item.high==null?'—':money(item.high)}`)));
-  if(!daily?.length)$('#daily-items').append(emptyState(daily?'暂无每日检查摘要。':'暂时无法读取每日摘要。'));
-  renderNotificationStatus(delivery);
-}
-$('#retry-notifications').onclick=async()=>{
-  const button=$('#retry-notifications');retryingNotifications=true;button.disabled=true;button.textContent='重试中…';
-  try{const status=await request('/api/notifications/retry',{method:'POST'});renderNotificationStatus(status);await loadMonitoring();}
-  catch(error){$('#notification-note').textContent='暂时无法重试，请稍后再试。';}
-  finally{retryingNotifications=false;button.disabled=false;button.textContent='重试';}
-};
-$('#watch-form').onsubmit=async event=>{event.preventDefault();const button=$('#watch-form button');button.disabled=true;try{const form=new FormData(event.target);await request('/api/watchlist',{method:'PUT',body:JSON.stringify({symbol:form.get('symbol'),threshold:Number(form.get('threshold'))})});$('#watch-form').reset();clearDraft('watch');await loadMonitoring();}catch(error){notify(error.message);}finally{button.disabled=false;}};
-$('#scan-now').onclick=async()=>{const button=$('#scan-now');button.disabled=true;try{await request('/api/scan',{method:'POST'});await loadMonitoring();}catch(error){notify(error.message);}finally{button.disabled=false;}};
-return {activate(){if(active)scrolls.set(selected,window.scrollY);active=true;showTool();restoreScroll();},back:closeTool,hasDrafts(){return Boolean(income?.hasDrafts?.());},preferencesChanged(){if(savedBacktest){const {result,bars,monthly,historicalFx}=savedBacktest;renderBacktest(result,bars,monthly,historicalFx);loadBacktestFx();}if(savedMonitoring)renderMonitoring(savedMonitoring);},deactivate(){scrolls.set(selected,window.scrollY);active=false;persistDiscovery();clearInterval(interval);interval=null;}};
+return {activate(){if(active)scrolls.set(selected,window.scrollY);active=true;showTool();restoreScroll();},back:closeTool,hasDrafts(){return Boolean(income?.hasDrafts?.());},preferencesChanged(){if(savedBacktest){const {result,bars,monthly,historicalFx}=savedBacktest;renderBacktest(result,bars,monthly,historicalFx);loadBacktestFx();}},deactivate(){scrolls.set(selected,window.scrollY);active=false;persistDiscovery();}};
 };

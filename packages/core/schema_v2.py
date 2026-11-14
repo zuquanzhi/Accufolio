@@ -6,7 +6,7 @@ ACCOUNT_PURPOSES = ('investing', 'savings', 'emergency', 'spending', 'housing_fu
 CASH_KINDS = ('balance_open', 'deposit', 'withdraw', 'interest', 'dividend', 'fee',
               'fx_in', 'fx_out', 'transfer_in', 'transfer_out')
 REQUIRED_TABLES = {'accounts','cash_entries','trades','fx_rates','settings','allocation_targets',
-                   'allocation_state','audit','requests','watchlist','scans','alerts','reversals'}
+                   'allocation_state','audit','requests','reversals'}
 
 
 def _ready(con):

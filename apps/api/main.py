@@ -27,16 +27,16 @@ async def lifespan(app):
     with db():
         pass
     stop = threading.Event()
-    interval = max(60, int(os.environ.get('ACCUFOLIO_SCAN_INTERVAL', '300')))
+    interval = max(60, int(os.environ.get('ACCUFOLIO_MAINTENANCE_INTERVAL', '300')))
     thread = threading.Thread(target=run_worker, args=(stop, interval), daemon=True, name='accufolio-maintenance')
     thread.start()
     yield
     stop.set()
-    # Do not hold shutdown indefinitely for provider I/O; heartbeat state still
-    # distinguishes an interrupted scan from a completed cycle.
+    # Do not hold shutdown indefinitely for a large SQLite backup; heartbeat
+    # state still distinguishes an interrupted backup from a completed cycle.
     thread.join(timeout=1)
 
-app = FastAPI(title='Accufolio', version='2.1.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='2.2.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -98,7 +98,7 @@ def version(actor: str = Depends(authorize)):
     for path in paths:
         digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '2.1.0'}
+    return {'version': digest.hexdigest(), 'release': '2.2.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):

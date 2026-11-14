@@ -1,7 +1,16 @@
 <section id="view-records" class="app-view" aria-labelledby="records-title">
   <div class="page-heading"><div><p class="eyebrow">YOUR ACTIVITY</p><h1 id="records-title" tabindex="-1">记录</h1></div></div>
-  <p class="section-description" id="record-description">投资中的每一步，都值得记录。</p>
-  <p class="ledger-hint" id="server-hint">这里展示 Agent 为你整理的投资记录，只供查看。</p>
+  <p class="section-description" id="record-description">核对 Agent 记录的证券买卖。现金流水可在资产页按账户查看。</p>
+  <div class="record-tools">
+    <label class="record-search">搜索记录<input id="record-search" type="search" placeholder="标的、账户或备注" maxlength="200" autocomplete="off"></label>
+    <details id="record-filters"><summary>筛选 <span id="record-filter-count"></span></summary><div class="record-filter-fields">
+      <label>账户<select id="record-account"><option value="">全部账户</option></select></label>
+      <label>方向<select id="record-side"><option value="">全部买卖</option><option value="buy">买入</option><option value="sell">卖出</option></select></label>
+      <label>月份<select id="record-month"><option value="">全部月份</option></select></label>
+    </div></details>
+  </div>
+  <div class="record-status"><span id="record-count" role="status" aria-live="polite">正在读取记录…</span><button type="button" id="record-clear" class="text-button" hidden>清除筛选</button></div>
   <p id="records-currency-note" class="field-hint"></p>
   <section class="panel history-panel" id="history"><div id="trades" class="trades"><p class="empty">正在读取记录…</p></div></section>
+  <button type="button" id="record-more" class="record-more" hidden>显示更多</button>
 </section>

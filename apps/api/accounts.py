@@ -3,9 +3,9 @@ from datetime import date, datetime, timedelta, timezone
 import json
 import math
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from apps.api.auth import authorize
 
@@ -111,9 +111,17 @@ def list_accounts(actor: str=Depends(authorize)):
 
 
 @router.get('/api/accounts/{account_id}/cash-entries')
-def list_cash_entries(account_id:int,actor: str=Depends(authorize)):
+def list_cash_entries(account_id:int,actor: str=Depends(authorize),
+                      expected_revision: Annotated[int | None, Query(ge=0)]=None):
+    if expected_revision is not None and (type(expected_revision) is not int or expected_revision < 0):
+        raise ValueError('expected_revision must be a non-negative integer or null')
     with _db() as con:
-        _account(con,account_id)
+        # Bind revision and journal to one read snapshot, including when a
+        # concurrent Agent commits between the two SELECTs in WAL mode.
+        con.execute('BEGIN')
+        account = _account(con,account_id)
+        if expected_revision is not None and account['revision'] != expected_revision:
+            raise HTTPException(409,'账户数据已更新，请刷新重试')
         return [{**row,'effective_date':row['entry_date']} for row in reversed(_rows(con,account_id))]
 
 

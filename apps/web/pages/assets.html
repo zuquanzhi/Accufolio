@@ -14,7 +14,7 @@
     <details class="dashboard-method"><summary>估值与数据来源</summary><p id="assets-fx-note" class="field-hint"></p><p class="field-hint">净资产为证券持仓市值与现金账户余额之和。账户余额由 Agent 记录的流水累计；行情、余额与汇率可能对应不同时间。</p><div id="assets-warnings"></div></details>
   </div>
   <div id="asset-account-detail" hidden>
-    <section class="wealth-card account-summary-card"><div class="wealth-top"><span id="account-kind">账户</span><span id="account-purpose" class="subtle"></span></div><strong id="account-value" class="wealth-value">—</strong><p id="account-value-note" class="valuation-note"></p><div class="wealth-metrics"><div><span>账户现金</span><strong id="account-native-balance">—</strong><small id="account-balance-date"></small></div><div><span>证券持仓</span><strong id="account-securities-value">—</strong><small id="account-quote-time">最近已知行情</small></div></div></section>
-    <section class="panel cash-flow-panel"><div class="section-head"><div><h2>资金流水</h2><p>由 Agent 记录，应用只读展示。</p></div></div><div id="account-cash-entries"></div></section>
+    <section class="wealth-card account-summary-card"><div class="wealth-top"><span id="account-kind">账户</span><span id="account-purpose" class="subtle"></span></div><strong id="account-value" class="wealth-value">—</strong><p id="account-value-note" class="valuation-note"></p><div class="wealth-metrics" id="account-metrics" data-cash-only="true"><div><span id="account-cash-label">原币余额</span><strong id="account-native-balance">—</strong><small id="account-balance-date"></small></div><div id="account-securities-metric" hidden><span>证券持仓</span><strong id="account-securities-value">—</strong><small id="account-quote-time"></small></div></div></section>
+    <section class="panel cash-flow-panel"><div class="section-head"><div><h2>资金流水</h2><p>原币金额与每笔余额，可核对转账及冲销。</p></div></div><div id="account-cash-entries" aria-live="polite"></div><p class="field-hint panel-footnote">余额按记账日期、同日流水顺序累计。冲销保留原记录与反向流水；账户间转账不代表新增收入。</p></section>
   </div>
 </section>

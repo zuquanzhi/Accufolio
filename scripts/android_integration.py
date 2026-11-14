@@ -43,7 +43,6 @@ def serve():
     from datetime import date, timedelta
     import uvicorn
     import apps.api.main as api
-    import apps.api.extended as monitoring
     import apps.api.dashboard as dashboard
     from apps.api.allocation import save_targets
     from apps.api.accounts import Account, CashEntry, save_account, add_cash_entry
@@ -52,7 +51,6 @@ def serve():
     from packages.providers import Quote, QuoteResult
     quote = lambda symbol: QuoteResult(Quote(symbol, 225.6 if symbol == 'AAPL' else 204.75, .84, 'test', time.time()), False, ())
     api.get_quote = quote
-    monitoring.get_quote = quote
     dashboard.get_quote = quote
     providers.get_quote = quote
     fx.get_fx=lambda:{'base':'USD','rates':{'USD':1,'CNY':7.2,'HKD':7.8,'EUR':.8},'as_of':date.today().isoformat(),'source':'fixture','available':True,'cached':True,'stale':False,'errors':[]}
@@ -208,7 +206,7 @@ def run(apk):
     NAV.write_text('', encoding='utf-8')
     with tempfile.TemporaryDirectory() as temp, (WORK/'server.log').open('w', encoding='utf-8') as log:
         env = {**os.environ, 'PYTHONPATH': str(ROOT), 'ACCUFOLIO_DB': str(Path(temp)/'integration.db'),
-               'ACCUFOLIO_WEBHOOK_URL': '', 'ACCUFOLIO_USER': 'admin', 'ACCUFOLIO_PASSWORD': 'android-integration-test'}
+               'ACCUFOLIO_USER': 'admin', 'ACCUFOLIO_PASSWORD': 'android-integration-test'}
         server = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'serve'], cwd=ROOT, env=env, stdout=log, stderr=log)
         try:
             context = ssl.create_default_context(cafile=str(CERT))
@@ -255,7 +253,7 @@ def run(apk):
                     wait_ui(lambda tree:any('获取行情并回测' in value for value in items(tree)),'discovery backtest detail',reject_login=True)
                     assert document_requests()==initial_documents,('Discovery detail reloaded document',document_requests())
                     adb('shell','input','keyevent','4')
-                    ui=wait_ui(lambda tree:any('税后收入' in value for value in items(tree)) and any('行情关注' in value for value in items(tree)) and not any('获取行情并回测' in value for value in items(tree)), 'native Back to discovery entries',reject_login=True)
+                    ui=wait_ui(lambda tree:any('税后收入' in value for value in items(tree)) and any('策略回测' in value for value in items(tree)) and not any('获取行情并回测' in value for value in items(tree)), 'native Back to discovery entries',reject_login=True)
                     assert document_requests()==initial_documents,('Discovery back reloaded document',document_requests())
             capture('android-settings-page.png')
             # These taps are real input events, exercising MainActivity's origin/frame/gesture checks.

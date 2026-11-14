@@ -1,143 +1,23 @@
-"""Monitoring, export, health and audited undo routes."""
-import io
+"""Export, backup health and audited undo routes."""
 import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
 from apps.api.main import authorize, csrf, db, ROOT
-from packages.providers import get_quote
-from packages.core import rules
-from packages import notifications
-from apps.api.signals import evaluate_calm
 
 router = APIRouter(prefix='/api')
 
-class Watch(BaseModel):
-    symbol: str = Field(min_length=1, max_length=15, pattern=r'^[A-Za-z0-9.\-]+$')
-    threshold: float = Field(default=2, gt=0, le=100, allow_inf_nan=False)
-
-@router.get('/watchlist')
-def watchlist(actor: str = Depends(authorize)):
-    with db() as con:
-        return [dict(r) for r in con.execute('SELECT * FROM watchlist ORDER BY symbol')]
-
-@router.put('/watchlist', dependencies=[Depends(csrf)])
-def set_watchlist(item: Watch, actor: str = Depends(authorize)):
-    with db() as con:
-        symbol = item.symbol.upper()
-        con.execute('INSERT INTO watchlist VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET threshold=excluded.threshold', (symbol,item.threshold))
-        con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)',(actor,'watchlist',json.dumps({'symbol':symbol,'threshold':item.threshold})))
-    return {'ok': True}
-
-@router.delete('/watchlist/{symbol}', dependencies=[Depends(csrf)])
-def remove_watch(symbol: str, actor: str = Depends(authorize)):
-    with db() as con:
-        con.execute('DELETE FROM watchlist WHERE symbol=?',(symbol.upper(),))
-        con.execute('INSERT INTO audit(actor,action,details) VALUES(?,?,?)',(actor,'remove_watch',json.dumps({'symbol':symbol.upper()})))
-    return {'ok':True}
-
-def monitoring_schema(con):
-    con.execute('''CREATE TABLE IF NOT EXISTS movement_high_water(
-        day TEXT NOT NULL,symbol TEXT NOT NULL,direction INTEGER NOT NULL,level INTEGER NOT NULL,
-        PRIMARY KEY(day,symbol,direction))''')
-    con.execute('''CREATE TABLE IF NOT EXISTS monitoring_state(
-        symbol TEXT PRIMARY KEY,updated_at TEXT NOT NULL,movement_level INTEGER NOT NULL,calm TEXT NOT NULL)''')
-    notifications.ensure_schema(con)
-
-
-def record_alert(con, symbol, message, dedupe, kind, level=None, as_of=None):
-    cursor = con.execute('INSERT OR IGNORE INTO alerts(symbol,message,dedupe) VALUES(?,?,?)',
-                         (symbol, message, dedupe))
-    if cursor.rowcount:
-        notifications.enqueue(con, cursor.lastrowid, symbol, message, kind, level, as_of)
-
-
-def scan_all():
-    from apps.api.maintenance import update_scan_progress, cleanup_alerts
-    from packages.core.market_time import et_today
-    day = et_today().isoformat()
-    rows = watchlist(actor='scheduler')
-    results = []
-    for row in rows:
-        update_scan_progress()
-        symbol = row['symbol']
-        result = get_quote(symbol)
-        q = result.quote
-        error = '; '.join(result.errors) if result.degraded else None
-        level = rules.movement_level(q.change_percent, row['threshold']) if q else 0
-        calm = evaluate_calm(symbol)
-        with db() as con:
-            monitoring_schema(con)
-            con.execute('BEGIN IMMEDIATE')
-            con.execute('INSERT INTO scans(symbol,price,change_percent,error) VALUES(?,?,?,?)',(symbol,q.price if q else None,q.change_percent if q else None,error))
-            if error:
-                record_alert(con, symbol, '行情数据异常：' + error, f'{day}:{symbol}:source', 'source', as_of=day)
-            if level:
-                direction = 1 if q.change_percent >= 0 else -1
-                previous = con.execute('SELECT level FROM movement_high_water WHERE day=? AND symbol=? AND direction=?',
-                                       (day, symbol, direction)).fetchone()
-                if previous is None or level > previous['level']:
-                    message = f'L{level} · {symbol} 涨跌幅 {q.change_percent:+.2f}%，达到 {row["threshold"] * level:g}% 阈值'
-                    record_alert(con, symbol, message, f'{day}:{symbol}:move:{direction}:L{level}', 'move', level, day)
-                    con.execute('''INSERT INTO movement_high_water VALUES(?,?,?,?)
-                        ON CONFLICT(day,symbol,direction) DO UPDATE SET level=excluded.level''', (day, symbol, direction, level))
-            if calm['status'] == 'triggered':
-                as_of = calm['as_of']
-                message = f'退潮信号 · {symbol}：截至 {as_of}，价格距 20 日高点至少 8%，VIX 自同期高点回落至少 25%'
-                record_alert(con, symbol, message, f'{as_of}:{symbol}:calm', 'calm', as_of=as_of)
-            con.execute('''INSERT INTO monitoring_state VALUES(?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET
-                updated_at=excluded.updated_at,movement_level=excluded.movement_level,calm=excluded.calm''',
-                (symbol, datetime.now(timezone.utc).isoformat(), level, json.dumps(calm, ensure_ascii=False)))
-            con.execute("DELETE FROM scans WHERE ts < datetime('now','-90 days')")
-            con.execute("DELETE FROM movement_high_water WHERE day < date('now','-90 days')")
-        results.append({'symbol':symbol,'degraded':result.degraded,'movement_level':level,'calm':calm})
-        update_scan_progress()
-    # Existing due notifications are retried even when the watchlist is empty.
-    notifications.deliver_pending(db)
-    cleanup_alerts()
-    return results
-
-@router.post('/scan', dependencies=[Depends(csrf)])
-def scan(actor: str = Depends(authorize)):
-    return scan_all()
-
-@router.get('/alerts')
-def alerts(actor: str = Depends(authorize)):
-    with db() as con:
-        return [dict(r) for r in con.execute('SELECT * FROM alerts ORDER BY id DESC LIMIT 200')]
-
-@router.get('/signals')
-def signals(actor: str = Depends(authorize)):
-    with db() as con:
-        monitoring_schema(con)
-        return [{**dict(row), 'calm': json.loads(row['calm'])} for row in con.execute(
-            'SELECT s.* FROM monitoring_state s JOIN watchlist w ON w.symbol=s.symbol ORDER BY s.symbol')]
-
-@router.get('/notifications/status')
-def notification_status(actor: str = Depends(authorize)):
-    return notifications.delivery_status(db)
-
-@router.post('/notifications/retry', dependencies=[Depends(csrf)])
-def retry_notifications(actor: str = Depends(authorize)):
-    count = notifications.retry_failed(db)
-    notifications.deliver_pending(db)
-    return {'requeued': count, **notifications.delivery_status(db)}
-
-@router.get('/daily')
-def daily(actor: str = Depends(authorize)):
-    with db() as con:
-        return [dict(r) for r in con.execute('SELECT substr(ts,1,10) AS day, symbol, count(*) AS scans, sum(error IS NOT NULL) AS failures, min(price) AS low, max(price) AS high FROM scans GROUP BY day,symbol ORDER BY day DESC,symbol LIMIT 200')]
 
 @router.get('/health')
 def health(actor: str = Depends(authorize)):
-    from apps.api.maintenance import worker_status
-    delivery = notifications.delivery_status(db)
+    from apps.api.maintenance import worker_status, backup_status
     worker = worker_status()
+    backup = backup_status()
     with db() as con:
-        return {'release':'2.1.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC', 'notifications': delivery, 'worker': worker}
+        return {'release':'2.2.0', 'database':con.execute('PRAGMA quick_check').fetchone()[0],
+                'timezone':'UTC', 'worker':worker, 'backup':backup}
 
 @router.get('/export')
 def export(actor: str = Depends(authorize)):

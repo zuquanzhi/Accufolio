@@ -22,15 +22,15 @@ Accufolio 是单用户、自托管的资产配置看板。账户说明钱放在�
 ![Accufolio 桌面与手机界面预览](assets/previews/product-poster.jpg)
 
 <details>
-<summary>查看更多：资产配置、策略曲线、行情关注与移动端</summary>
+<summary>查看更多：资产配置、策略曲线、收入测算与移动端</summary>
 <br>
 <img src="assets/previews/mobile-pages.jpg" alt="移动端主要页面" width="1000">
 <img src="assets/previews/mobile-income.png" alt="税后收入逐月测算" width="280">
 <img src="assets/previews/mobile-investments.png" alt="证券投资总览" width="280">
 <img src="assets/previews/mobile-allocation.png" alt="证券配置与持仓明细" width="280">
 <img src="assets/previews/web-backtest.png" alt="策略回测结果" width="800">
-<img src="assets/previews/web-monitoring.png" alt="行情监控" width="800">
 <img src="assets/previews/mobile-trades.png" alt="手机交易记录" width="280">
+<img src="assets/previews/mobile-account.png" alt="账户原币流水与逐笔余额" width="280">
 <img src="assets/previews/mobile-settings.png" alt="移动端设置" width="280">
 <img src="assets/previews/android-welcome.png" alt="Android 客户端连接服务器欢迎页" width="280">
 </details>
@@ -41,10 +41,10 @@ Accufolio 是单用户、自托管的资产配置看板。账户说明钱放在�
 
 | 页面 | 看什么 |
 |---|---|
-| **资产** | 默认首页。净资产、明确的账户、现金余额与账户配置；点按账户核对流水。 |
+| **资产** | 默认首页。净资产、明确的账户、现金余额与账户配置；点按账户核对逐笔余额、转账与冲销。 |
 | **投资** | 证券持仓、未实现与已实现盈亏、历史曲线；配置与持仓、投入与收益各有详情。 |
-| **记录** | 已完成的证券买卖，包含账户、币种、手续费与策略标签。 |
-| **发现** | 分组入口：策略回测、税后收入、行情关注、提醒记录、消息通知和每日摘要。 |
+| **记录** | 搜索证券买卖，按账户、方向和月份筛选；保留原币、手续费与策略标签。 |
+| **发现** | 策略回测与税后收入测算，点按进入独立工具。 |
 | **设置** | 展示币种、时区、登录、备份、连接和更新。 |
 
 现金余额由流水累计，证券按账户与标的计算，再汇总展示；目标只存权重。支持 USD、人民币 CNY、HKD、EUR：当前金额使用最新参考汇率，历史点使用当时已发布的汇率。缺失行情或汇率时明确显示不可计算。
@@ -100,7 +100,7 @@ docker compose up -d --build
 
 ## 数据与边界
 
-服务端提供 SQLite 在线备份和账户、流水等业务数据的 JSON 导出。自动日备份默认保留 30 份；后台心跳、失败与投递状态可查看，告警清理保护未送达消息。数据权限与运行 MCP 的本地进程绑定。
+服务端提供 SQLite 在线备份和账户、流水等业务数据的 JSON 导出。自动日备份默认保留 30 份；设置中可查看自动备份时间、后台心跳与失败状态。数据权限与运行 MCP 的本地进程绑定。
 
 当前支持 USD 美股交易、原币现金账户和四种展示币种；未覆盖的币种显示折算不可用。现金可记录利息、分红和费用，证券 XIRR 暂不纳入现金分红。未复权日线可能受拆股影响。不连接券商下单，不提供多用户、远程 MCP 或行情分销；独立离线启动、完整账户净值和负债管理未实现。更多边界见[路线图](guides/roadmap.md)。
 

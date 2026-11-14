@@ -19,7 +19,7 @@ def main():
             port = listener.getsockname()[1]
         base = f'http://127.0.0.1:{port}'
         env = {**os.environ, 'ACCUFOLIO_DB': str(Path(temp) / 'test.db'),
-               'ACCUFOLIO_PASSWORD': 'browser-session-test', 'ACCUFOLIO_USER': 'admin', 'ACCUFOLIO_WEBHOOK_URL': '',
+               'ACCUFOLIO_PASSWORD': 'browser-session-test', 'ACCUFOLIO_USER': 'admin',
                'ACCUFOLIO_PUBLIC_ORIGIN': ''}
         server = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.api.main:app', '--host', '127.0.0.1',
                                    '--port', str(port)], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

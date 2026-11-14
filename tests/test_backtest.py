@@ -1,7 +1,6 @@
 import unittest
 from datetime import date
 from packages.core.backtest import run
-from packages.core.rules import calm_signal, movement_level
 
 class BacktestTests(unittest.TestCase):
     def test_fixed_and_cash(self):
@@ -18,19 +17,3 @@ class BacktestTests(unittest.TestCase):
         with self.assertRaises(ValueError): run([], 100)
         with self.assertRaises(ValueError): run([(date.today(), 1)], 0)
         with self.assertRaises(ValueError): run([(date.today(), 1)], 100, 'bad')
-
-class RuleTests(unittest.TestCase):
-    def test_calm(self):
-        self.assertTrue(calm_signal(90, [100]*20, 22, 30))
-        self.assertFalse(calm_signal(99, [100]*20, 22, 30))
-        self.assertFalse(calm_signal(90, [100]*20, 29, 30))
-        with self.assertRaises(ValueError): calm_signal(90, [], 22, 30)
-    def test_move(self):
-        self.assertEqual(movement_level(-2), 1)
-        self.assertEqual(movement_level(1.9), 0)
-        self.assertEqual(movement_level(4), 2)
-        self.assertEqual(movement_level(-6), 3)
-        self.assertEqual(movement_level(100), 3)
-        self.assertEqual(movement_level(1.5, .5), 3)
-        with self.assertRaises(ValueError): movement_level(float('nan'))
-        with self.assertRaises(ValueError): movement_level(1, 0)

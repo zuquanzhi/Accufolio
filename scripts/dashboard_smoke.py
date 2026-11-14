@@ -2,7 +2,7 @@
 
 Run with the project virtualenv plus Playwright. All data endpoints are mocked;
 no trade is written through HTTP, no local ledger is uploaded, and no provider
-or notification endpoint is contacted.
+endpoint is contacted.
 """
 from copy import deepcopy
 from datetime import date, timedelta
@@ -61,7 +61,7 @@ def main():
     with tempfile.TemporaryDirectory() as temp:
         sock=socket.socket();sock.bind(('127.0.0.1',0));port=sock.getsockname()[1];sock.close()
         env={**os.environ, 'ACCUFOLIO_USER':'admin', 'ACCUFOLIO_PASSWORD':'dashboard-test',
-             'ACCUFOLIO_DB':str(Path(temp)/'dashboard.db'), 'ACCUFOLIO_WEBHOOK_URL':''}
+             'ACCUFOLIO_DB':str(Path(temp)/'dashboard.db')}
         process=subprocess.Popen([sys.executable,'-m','uvicorn','apps.api.main:app','--port',str(port),
                                   '--timeout-graceful-shutdown','3'],cwd=ROOT,env=env,
                                  stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -108,10 +108,10 @@ def main():
                         'securities_value_usd':securities,'cash_value_usd':cash,'complete':complete,
                         'missing_fx':['HKD'] if state['missing_fx'] else [],'warnings':[],
                         'fx':{'base':'USD','rates':{'USD':1,'HKD':7.8,'CNY':7.2,'EUR':.8},'source':'fixture','as_of':END.isoformat(),'available':True,'stale':False},
-                        'accounts':[{'id':1,'name':'Securities','kind':'broker','purpose':'investing','currency':'USD','balance':0,'as_of':None,'cash_value_usd':0,'securities_value_usd':securities,'value_usd':securities},
-                                    {'id':2,'name':'Savings','kind':'bank','purpose':'savings','currency':'HKD','balance':4680,'as_of':END.isoformat(),'cash_value_usd':cash,'securities_value_usd':0,'value_usd':cash}]})
+                        'accounts':[{'id':1,'name':'Securities','kind':'broker','purpose':'investing','currency':'USD','balance':0,'as_of':None,'cash_value_usd':0,'securities_value_usd':securities,'value_usd':securities,'revision':1,'entry_count':0},
+                                    {'id':2,'name':'Savings','kind':'bank','purpose':'savings','currency':'HKD','balance':4680,'as_of':END.isoformat(),'cash_value_usd':cash,'securities_value_usd':0,'value_usd':cash,'revision':1,'entry_count':1}]})
                 page.route('**/api/assets',account_assets)
-                page.route('**/api/accounts/2/cash-entries',lambda route:route.fulfill(json=[{'id':1,'account_id':2,'entry_date':END.isoformat(),'kind':'balance_open','amount':4680,'currency':'HKD','note':'Test opening'}]))
+                page.route('**/api/accounts/2/cash-entries*',lambda route:route.fulfill(json=[{'id':1,'account_id':2,'entry_date':END.isoformat(),'kind':'balance_open','amount':4680,'currency':'HKD','note':'Test opening'}]))
                 page.route('**/api/trades' ,lambda route:route.fulfill(json=TRADES))
                 page.route('**/api/version',lambda route:route.fulfill(json={'version':'dashboard-fixture','release':'2.0.0'}))
                 def history(route):
@@ -123,11 +123,9 @@ def main():
                     route.fulfill(json={'quote':QUOTES[symbol],'degraded':False,'errors':[]})
                 page.route('**/api/summary?*',quote)
                 # These other pages must also remain deterministic when traversed.
-                for endpoint,response in [('health',{'release':'2.0.0','database':'ok','last_scan':None}),
-                                          ('audit',[]),('watchlist',[]),('signals',[]),('alerts',[]),('daily',[])]:
+                for endpoint,response in [('health',{'release':'2.0.0','database':'ok'}),
+                                          ('audit',[])]:
                     page.route('**/api/'+endpoint,lambda route,_request=None,reply=response:route.fulfill(json=reply))
-                page.route('**/api/notifications/status',lambda route:route.fulfill(json={
-                    'configured':False,'valid':True,'pending':0,'sending':0,'sent':0,'failed':0,'last_error':None}))
 
                 def tab(name):
                     page.locator(f"a[data-view='{name}']").click()

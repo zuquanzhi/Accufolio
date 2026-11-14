@@ -31,7 +31,7 @@ BACKTEST={'strategies':{key:{'invested':200,'value':240,'return_rate':.2,'xirr':
 def main():
  with tempfile.TemporaryDirectory() as temp:
   sock=socket.socket();sock.bind(('127.0.0.1',0));port=sock.getsockname()[1];sock.close()
-  env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preferences-test','ACCUFOLIO_DB':str(Path(temp)/'preferences.db'),'ACCUFOLIO_WEBHOOK_URL':''}
+  env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preferences-test','ACCUFOLIO_DB':str(Path(temp)/'preferences.db')}
   process=subprocess.Popen([sys.executable,'-m','uvicorn','apps.api.main:app','--port',str(port),'--timeout-graceful-shutdown','3'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   base=f'http://127.0.0.1:{port}'
   try:
@@ -57,7 +57,7 @@ def main():
      route.fulfill(json=result)
     page.route('**/api/dashboard*',dashboard);page.route('**/api/assets',assets)
     page.route('**/api/allocation',lambda r:r.fulfill(json=TARGETS));page.route('**/api/trades',lambda r:r.fulfill(json=TRADES))
-    page.route('**/api/accounts/*/cash-entries',lambda r:r.fulfill(json=[{'id':1,'account_id':2,'entry_date':'2026-11-13','effective_date':'2026-11-13','amount':4260,'currency':'CNY','kind':'income','note':'工资'}]))
+    page.route('**/api/accounts/*/cash-entries*',lambda r:r.fulfill(json=[{'id':1,'account_id':2,'entry_date':'2026-11-13','effective_date':'2026-11-13','amount':4260,'currency':'CNY','kind':'deposit','note':'工资'}]))
     page.route('**/api/settings',lambda r:r.fulfill(json={'display_currency':'USD','market_timezone':'America/New_York','revision':1}))
     page.route('**/api/version',lambda r:r.fulfill(json={'version':'preferences-fixture','release':'2.0.0'}))
     page.route('**/api/fx',lambda r:r.fulfill(status=state['fx_status'],json={**RATES,'stale':state['stale']}))
@@ -69,10 +69,8 @@ def main():
       points=[{'day':p['day'],'rates':{'USD':1,'CNY':None if i==4 else 6 if i==0 else 7,'HKD':7.8,'EUR':.9}}for i,p in enumerate(payload()['series'])]
      route.fulfill(json={'base':'USD','points':points,'stale':False})
     page.route('**/api/fx/history?*',fx_history)
-    for endpoint in ['watchlist','alerts','signals']:page.route('**/api/'+endpoint,lambda r:r.fulfill(json=[]))
-    page.route('**/api/daily',lambda r:r.fulfill(json=[{'day':'2026-11-13','symbol':'AAA','scans':1,'failures':0,'low':100,'high':120}]))
-    page.route('**/api/notifications/status',lambda r:r.fulfill(json={'configured':False}))
-    page.route('**/api/health',lambda r:r.fulfill(json={'release':'2.0.0','database':'ok','worker':{'status':'stale','heartbeat_at':'2026-11-13T12:00:00+00:00'}}))
+    health_reply={'release':'2.0.0','database':'ok','worker':{'status':'stale','heartbeat_at':'2026-11-13T12:00:00+00:00'},'backup':{'status':'ok','last_success_at':'2026-11-13T01:00:00+00:00','keep':30}}
+    page.route('**/api/health',lambda r:r.fulfill(json=health_reply))
     page.route('**/api/backtest',lambda r:r.fulfill(json=BACKTEST))
     tab=lambda name:page.locator('a[data-view="'+name+'"]').click()
     def discovery(tool):
@@ -110,9 +108,12 @@ def main():
     page.locator('#asset-detail-back').click();page.locator('[data-asset-detail=performance]').click();expect(page.locator('#buy-total')).to_have_text('CN¥3,038.80');expect(page.locator('#realized')).to_have_text('CN¥71.00')
     tab('records');expect(page.locator('#trades')).to_contain_text('CN¥781.00')
     tab('discover');discovery('backtest');expect(page.locator('#backtest-chart .chart-values')).to_contain_text('CN¥1,680.00');page.locator('.backtest-detail summary').click();expect(page.locator('.backtest-detail')).to_contain_text('CN¥1,400.00')
-    discovery('watchlist');expect(page.locator('#worker-status')).to_contain_text('已停滞');expect(page.locator('#worker-status')).to_contain_text('20:00');discovery('daily');expect(page.locator('#daily-items')).to_contain_text('CN¥710.00 / 最高 CN¥852.00')
+    tab('settings');page.locator('#system summary').click();expect(page.locator('#health')).to_contain_text('已停滞');expect(page.locator('#health')).to_contain_text('20:00')
+    expect(page.locator('#backup-status')).to_contain_text('09:00');expect(page.locator('#backup-status')).not_to_contain_text('20:00');expect(page.locator('#backup-status')).to_contain_text('30 份')
     assert page.evaluate('window.preferenceDocumentMarker')==17
     tab('settings');page.reload();expect(page.locator('#display-currency')).to_have_value('CNY');expect(page.locator('#display-timezone')).to_have_value('Asia/Shanghai')
+    health_reply['backup']['status']='failed';page.reload();expect(page.locator('#backup-status')).to_contain_text('自动备份失败');expect(page.locator('#backup-status')).to_contain_text('09:00')
+    health_reply['backup'].update(status='not_created',last_success_at=None);page.reload();expect(page.locator('#backup-status')).to_contain_text('尚无成功的自动备份');expect(page.locator('#backup-status')).not_to_contain_text('09:00')
     tab('investments');expect(page.locator('#value')).to_have_text('CN¥2,840.00')
     state['fx_status']=503;page.reload();expect(page.locator('#value')).to_have_text('$400.00');expect(page.locator('#quote-as-of')).to_contain_text('汇率暂不可用');expect(page.locator('#valuation-label')).to_contain_text('USD')
     state.update(fx_status=200,stale=True,quote_lag=True);page.reload();expect(page.locator('#value')).to_have_text('CN¥2,840.00');expect(page.locator('#quote-as-of')).to_contain_text('过期汇率');expect(page.locator('#quote-as-of')).to_contain_text('行情滞后');expect(page.locator('#quote-as-of')).to_contain_text('北京')
