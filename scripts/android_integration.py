@@ -153,7 +153,7 @@ def wait_ui(predicate, description, reject_login=False, timeout=50):
 
 
 def wait_page(route):
-    distinctive={'/assets':'净资产','/investments':'持仓市值','/records':'投资中的每一步','/discover':'策略回测','/settings':'展示币种'}[route]
+    distinctive={'/assets':'净资产','/investments':'持仓市值','/records':'搜索记录','/discover':'策略回测','/settings':'展示币种'}[route]
     def ready(ui):
         values=items(ui)
         return all(label in values for label in ['资产','投资','记录','发现','设置']) and any(distinctive in item for item in values)
