@@ -64,6 +64,8 @@ def main():
                 signal_reply=[]
                 notification_reply={'configured':False,'valid':True,'pending':0,'sending':0,'sent':0,'failed':0,'last_error':None}
                 notification_status=[200];retry_status=[200];scan_requests=[];retry_requests=[]
+                monitoring_requests=[]
+                page.on('request',lambda req:monitoring_requests.append(req.url) if any('/api/'+part in req.url for part in ['watchlist','alerts','daily','signals','notifications/status']) else None)
                 page.route('**/api/watchlist',lambda route:route.fulfill(json=watch_reply))
                 page.route('**/api/signals',lambda route:route.fulfill(json=signal_reply))
                 page.route('**/api/notifications/status',lambda route:route.fulfill(status=notification_status[0],json=notification_reply))
@@ -88,6 +90,19 @@ def main():
                     expect(page.locator('#view-'+name)).to_be_visible()
                     expect(page.locator('.app-view')).to_have_count(1)
                     assert page.evaluate('window.__documentMarker') == 1, 'Tabs must retain the live document'
+                def discovery(tool):
+                    page.evaluate('window.__documentMarker=1')
+                    if page.locator('#discover-back').is_visible():
+                        page.locator('#discover-back').click()
+                        expect(page.locator('#discover-home')).to_be_visible()
+                    page.locator(f'[data-discover-tool="{tool}"]').click()
+                    page.wait_for_url(base+'/discover?tool='+tool)
+                    expect(page.locator(f'[data-discover-panel="{tool}"]')).to_be_visible()
+                    assert page.evaluate('window.__documentMarker')==1
+                def scan_and_notifications():
+                    discovery('watchlist');page.locator('#scan-now').click()
+                    expect(page.locator('#scan-now')).to_be_enabled()
+                    discovery('notifications')
                 page.wait_for_url(base+'/assets')
                 expect(page.locator('#assets-total')).to_have_text('$0.00')
                 expect(page.locator('#value')).to_have_count(0)
@@ -123,7 +138,20 @@ def main():
                 page.evaluate('invalidateData()')
                 expect(page.locator('#value')).to_have_text('$0.00')
                 # Discovery drafts survive a real navigation, reload and browser back.
-                tab('discover')
+                before_monitoring=len(monitoring_requests)
+                tab('discover');expect(page.locator('#discover-home')).to_be_visible()
+                expect(page.locator('#view-discover form:visible')).to_have_count(0)
+                expect(page.locator('[data-discover-tool]')).to_have_count(6)
+                page.wait_for_timeout(200)
+                assert len(monitoring_requests)==before_monitoring,monitoring_requests
+                discovery('backtest')
+                page.go_back();expect(page.locator('#discover-home')).to_be_visible()
+                page.go_forward();expect(page.locator('#backtest-panel')).to_be_visible()
+                assert page.evaluate('window.accufolioBack()') is True
+                expect(page.locator('#discover-home')).to_be_visible()
+                assert page.evaluate('window.accufolioBack()') is False
+                discovery('backtest')
+                assert len(monitoring_requests)==before_monitoring,monitoring_requests
                 page.locator('#backtest [name=start]').fill('2025-01-01')
                 page.locator('#backtest [name=end]').fill('2025-04-01')
                 page.locator('#run-history').click()
@@ -153,7 +181,7 @@ def main():
                 page.route('**/api/history?*',delayed_history)
                 page.locator('#run-history').click()
                 expect(page.locator('#backtest')).to_have_attribute('aria-busy','true')
-                tab('investments');tab('discover')
+                tab('investments');tab('discover');discovery('backtest')
                 expect(page.locator('#backtest')).to_have_attribute('aria-busy','true')
                 page.locator('#backtest [name=monthly]').fill('301')
                 expect(page.locator('#run-history')).to_be_enabled()
@@ -170,11 +198,13 @@ def main():
                 page.evaluate("const f=document.querySelector('#backtest');const d=new Date();const format=x=>new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10);f.elements.end.value=format(d);d.setFullYear(d.getFullYear()-1);f.elements.start.value=format(d);f.dispatchEvent(new Event('input',{bubbles:true}));")
                 page.locator('#manual-data summary').click()
                 page.locator('#backtest [name=bars]').fill('2025-01-02,100\n2025-02-03,50\n2025-03-03,100')
-                tab('investments');page.go_back();page.wait_for_url(base+'/discover')
+                tab('investments');page.go_back();page.wait_for_url(base+'/discover?tool=backtest')
                 expect(page.locator('#backtest [name=bars]')).to_have_value('2025-01-02,100\n2025-02-03,50\n2025-03-03,100')
                 page.locator('#run-manual').click();expect(page.locator('#backtest-result')).to_contain_text('固定月投')
-                page.locator("button[data-discover='monitoring']").click()
+                discovery('watchlist')
                 expect(page.locator('#monitoring')).to_be_visible();expect(page.locator('#backtest-panel')).to_be_hidden()
+                expect(page.locator('#watch-items')).to_contain_text('等待首次检查')
+                discovery('notifications')
                 expect(page.locator('#notification-status')).to_contain_text('尚未开启')
                 expect(page.locator('#notification-note')).to_contain_text('ACCUFOLIO_WEBHOOK_URL')
                 expect(page.locator('#retry-notifications')).to_be_hidden()
@@ -185,19 +215,19 @@ def main():
                     {'symbol':'TLT','movement_level':3,'calm':{'status':'triggered','as_of':'2025-03-03'}},
                 ])
                 notification_reply.update(configured=True,sent=4)
-                page.locator('#scan-now').click()
+                scan_and_notifications()
                 expect(page.locator('#notification-status')).to_contain_text('已发送 4')
                 for symbol,level in [('QQQM',1),('SPY',2),('TLT',3)]:expect(page.locator('#watch-items')).to_contain_text(f'{symbol} · L{level}')
                 expect(page.locator('#watch-items')).to_contain_text('暂无退潮信号')
                 expect(page.locator('#watch-items')).to_contain_text('需要至少 20 个共同交易日')
                 expect(page.locator('#watch-items')).to_contain_text('退潮信号已触发')
                 notification_reply.update(pending=2,last_error='https://notify.example/secret?token=DO_NOT_DISPLAY')
-                page.locator('#scan-now').click()
+                scan_and_notifications()
                 expect(page.locator('#notification-status')).to_contain_text('等待发送 2')
                 expect(page.locator('#notification-note')).to_contain_text('自动重试')
                 expect(page.locator('#retry-notifications')).to_be_hidden()
                 notification_reply.update(pending=0,failed=2)
-                page.locator('#scan-now').click()
+                scan_and_notifications()
                 expect(page.locator('#notification-status')).to_contain_text('失败 2')
                 expect(page.locator('#retry-notifications')).to_be_visible()
                 expect(page.locator('#notification-delivery')).not_to_contain_text('DO_NOT_DISPLAY')
@@ -213,22 +243,27 @@ def main():
                 expect(page.locator('#retry-notifications')).to_be_hidden()
                 assert len(retry_requests)==2 and len(scan_requests)==3
                 notification_reply.update(valid=False,last_error='https://notify.example/secret?token=DO_NOT_DISPLAY')
-                page.locator('#scan-now').click()
+                scan_and_notifications()
                 expect(page.locator('#notification-status')).to_contain_text('配置需要检查')
                 expect(page.locator('#notification-delivery')).not_to_contain_text('DO_NOT_DISPLAY')
                 expect(page.locator('#retry-notifications')).to_be_hidden()
                 notification_status[0]=503
-                page.locator('#scan-now').click()
+                scan_and_notifications()
                 expect(page.locator('#notification-status')).to_contain_text('暂时无法读取')
                 expect(page.locator('#watch-items')).to_contain_text('QQQM · L1')
                 notification_status[0]=200;notification_reply.update(valid=True,last_error=None)
-                page.locator('#scan-now').click()
+                scan_and_notifications()
                 expect(page.locator('#notification-status')).to_contain_text('已发送 6')
                 for width in [320,390,430]:
                     page.set_viewport_size({'width':width,'height':844})
                     for view in ['assets','investments','records','discover','settings']:
                         tab(view)
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'{view} overflows at {width}'
+                    tab('discover')
+                    for tool in ['backtest','income','watchlist','alerts','notifications','daily']:
+                        discovery(tool)
+                        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (tool,width)
+                        page.locator('#discover-back').click();expect(page.locator('#discover-home')).to_be_visible()
                     for link in page.locator('a[data-view]').all():
                         box=link.bounding_box();assert box['width']>=44 and box['height']>=44,box
                 # Prewarmed pages stay interactive offline, without document or API requests.
@@ -281,14 +316,14 @@ def main():
                 # Editable analysis drafts protect automatic updates.
                 page.wait_for_function('appVersion !== null')
                 versions[0]='test-v2';page.evaluate('checkVersion()');expect(page.locator('#notice')).to_contain_text('新版本')
-                tab('discover');page.locator("button[data-discover='backtest']").click();page.locator('#backtest [name=bars]').fill('');page.locator('#backtest [name=monthly]').fill('400')
+                tab('discover');discovery('backtest');page.locator('#backtest [name=bars]').fill('');page.locator('#backtest [name=monthly]').fill('400')
                 page.wait_for_function('appVersion !== null');versions[0]='test-v3';page.evaluate('checkVersion()');expect(page.locator('#notice')).to_contain_text('新版本')
                 # A threshold-only watch draft is preserved too, across a reload and navigation.
-                page.locator("button[data-discover='monitoring']").click();page.locator('#watch-form [name=threshold]').fill('3')
-                tab('records');tab('discover');expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
+                discovery('watchlist');page.locator('#watch-form [name=threshold]').fill('3')
+                tab('records');tab('discover');discovery('watchlist');expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
                 page.reload();expect(page.locator('#watch-form [name=threshold]')).to_have_value('3')
                 page.locator('#watch-form [name=threshold]').fill('2')
-                page.locator("button[data-discover='backtest']").click()
+                discovery('backtest')
                 page.locator('#backtest [name=monthly]').fill('300')
                 assert not page.evaluate('hasDrafts()'), 'No editable draft should remain'
                 versions[0]='test-v4'
@@ -298,6 +333,15 @@ def main():
                 # All routes can be opened independently without a preceding home visit.
                 for view in ['assets','investments','records','discover','settings']:
                     page.goto(base+'/'+view);expect(page.locator('#view-'+view)).to_be_visible();expect(page.locator('.app-view')).to_have_count(1)
+                for tool in ['backtest','income','watchlist','alerts','notifications','daily']:
+                    page.goto(base+'/discover?tool='+tool)
+                    expect(page.locator(f'[data-discover-panel="{tool}"]')).to_be_visible()
+                    expect(page.locator('#discover-home')).to_be_hidden()
+                    page.evaluate('window.__directDiscoverMarker=29')
+                    page.locator('#discover-back').click()
+                    expect(page.locator('#discover-home')).to_be_visible()
+                    page.wait_for_url(base+'/discover')
+                    assert page.evaluate('window.__directDiscoverMarker')==29
                 if os.environ.get('ACCUFOLIO_SCREENSHOT'):page.screenshot(path=os.environ['ACCUFOLIO_SCREENSHOT'],full_page=True)
                 for version in ['1.3.0','2.0.0']:
                     native=browser.new_context(user_agent='Mozilla/5.0 AccufolioAndroid/'+version,viewport={'width':390,'height':844})

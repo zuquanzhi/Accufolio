@@ -75,6 +75,10 @@ def main():
     page.route('**/api/health',lambda r:r.fulfill(json={'release':'2.0.0','database':'ok','worker':{'status':'stale','heartbeat_at':'2026-11-13T12:00:00+00:00'}}))
     page.route('**/api/backtest',lambda r:r.fulfill(json=BACKTEST))
     tab=lambda name:page.locator('a[data-view="'+name+'"]').click()
+    def discovery(tool):
+     if page.locator('#discover-back').is_visible():
+      page.locator('#discover-back').click();expect(page.locator('#discover-home')).to_be_visible()
+     page.locator('[data-discover-tool="'+tool+'"]').click();expect(page.locator('[data-discover-panel="'+tool+'"]').first).to_be_visible()
     page.goto(base);expect(page.locator('#assets-total')).to_have_text('$1,000.00');assert page.url==base+'/assets'
     expect(page.locator('.tab-bar a')).to_have_count(5);expect(page.locator('#asset-accounts')).to_contain_text('工资卡');expect(page.locator('#asset-accounts')).to_contain_text('储蓄 · CNY')
     expect(page.locator('#asset-accounts')).to_contain_text('CN¥4,260.00');expect(page.locator('#assets-securities')).to_have_text('$400.00');expect(page.locator('#assets-cash')).to_have_text('$600.00')
@@ -94,7 +98,7 @@ def main():
     assert len([r for r in requests if '/api/dashboard?' in r[1]])==before
     entries=page.locator('.overview-links').bounding_box();nav=page.locator('.tab-bar').bounding_box();assert entries['y']+entries['height']<nav['y'],(entries,nav)
     tab('records');expect(page.locator('#trades')).to_contain_text('$110.00')
-    tab('discover');page.locator('#manual-data summary').click();page.locator('#backtest [name=bars]').fill('2024-01-02,100\n2024-02-02,120');page.locator('#run-manual').click();expect(page.locator('#backtest-chart')).to_be_visible()
+    tab('discover');discovery('backtest');page.locator('#manual-data summary').click();page.locator('#backtest [name=bars]').fill('2024-01-02,100\n2024-02-02,120');page.locator('#run-manual').click();expect(page.locator('#backtest-chart')).to_be_visible()
     tab('settings');expect(page.locator('#default-scope')).to_have_count(0);expect(page.locator('#migration')).to_have_count(0);expect(page.locator('#ledger-mode')).to_have_count(0)
     page.select_option('#display-currency','CNY');expect(page.locator('#currency-status')).to_contain_text('7.1')
     page.select_option('#display-timezone','Asia/Shanghai');expect(page.locator('#timezone-status')).to_contain_text('北京')
@@ -105,8 +109,8 @@ def main():
     page.locator('[data-asset-detail=allocation]').click();expect(page.locator('[data-symbol=AAA].allocation-row')).to_contain_text('-CN¥284.00')
     page.locator('#asset-detail-back').click();page.locator('[data-asset-detail=performance]').click();expect(page.locator('#buy-total')).to_have_text('CN¥3,038.80');expect(page.locator('#realized')).to_have_text('CN¥71.00')
     tab('records');expect(page.locator('#trades')).to_contain_text('CN¥781.00')
-    tab('discover');expect(page.locator('#backtest-chart .chart-values')).to_contain_text('CN¥1,680.00');page.locator('.backtest-detail summary').click();expect(page.locator('.backtest-detail')).to_contain_text('CN¥1,400.00')
-    page.locator('[data-discover=monitoring]').click();expect(page.locator('#worker-status')).to_contain_text('已停滞');expect(page.locator('#worker-status')).to_contain_text('20:00');page.locator('#daily-items').locator('..').locator('summary').click();expect(page.locator('#daily-items')).to_contain_text('CN¥710.00 / 最高 CN¥852.00')
+    tab('discover');discovery('backtest');expect(page.locator('#backtest-chart .chart-values')).to_contain_text('CN¥1,680.00');page.locator('.backtest-detail summary').click();expect(page.locator('.backtest-detail')).to_contain_text('CN¥1,400.00')
+    discovery('watchlist');expect(page.locator('#worker-status')).to_contain_text('已停滞');expect(page.locator('#worker-status')).to_contain_text('20:00');discovery('daily');expect(page.locator('#daily-items')).to_contain_text('CN¥710.00 / 最高 CN¥852.00')
     assert page.evaluate('window.preferenceDocumentMarker')==17
     tab('settings');page.reload();expect(page.locator('#display-currency')).to_have_value('CNY');expect(page.locator('#display-timezone')).to_have_value('Asia/Shanghai')
     tab('investments');expect(page.locator('#value')).to_have_text('CN¥2,840.00')

@@ -14,3 +14,62 @@
 
 .preference-select>span{min-width:0}.preference-select select{flex-shrink:0;width:138px}#records-currency-note{margin:-6px 0 18px}#currency-status{overflow-wrap:anywhere}
 @media(max-width:760px){.preference-select select{font-size:14px}}
+
+/* Discovery is a compact directory; each tool gets its own focused view. */
+#view-discover{max-width:760px;margin-inline:auto}
+#view-discover .discover-heading{margin-bottom:28px}
+#view-discover .discover-heading>div{min-width:0;width:100%}
+#discover-description{font-size:13px;line-height:1.7;margin-top:9px}
+#discover-back{display:inline-flex;align-items:center;gap:3px;margin:0 0 14px -8px;padding:6px 8px;min-height:44px;background:transparent;color:var(--muted);font-size:13px;font-weight:500;border-radius:12px}
+#discover-back .icon{width:19px;height:19px}
+.discover-directory{display:grid;gap:18px}
+.discover-group{border:1px solid rgba(255,255,255,.9);border-radius:22px;background:var(--card);box-shadow:var(--shadow);overflow:hidden}
+.discover-row{position:relative;display:flex;align-items:center;gap:15px;min-height:78px;padding:16px 22px;color:var(--ink);text-decoration:none;isolation:isolate;transition:background .16s}
+.discover-row+.discover-row:before{content:'';position:absolute;top:0;right:22px;left:72px;border-top:1px solid var(--line)}
+.discover-row:hover{background:var(--tint)}
+.discover-row:active{background:var(--tint)}
+.discover-row:focus-visible{outline-offset:-4px;border-radius:16px}
+.discover-icon{flex:0 0 34px;width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:var(--tint);color:#5675d3}
+.discover-icon .icon{width:23px;height:23px;stroke-width:1.7}
+.discover-icon-income{background:#e8f3ef;color:#418472}
+.discover-icon-market{background:#e8f3ef;color:#418472}
+.discover-icon-alert{background:#fbf0df;color:#aa7a32}
+.discover-icon-notification{background:#e9f0fa;color:#5b83b8}
+.discover-icon-daily{background:#eeebf7;color:#8775ad}
+.discover-row-label{min-width:0;font-size:16px;font-weight:550;letter-spacing:.1px}
+.discover-row-meta{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.discover-chevron{width:14px;height:14px;color:var(--muted);opacity:.65;flex:0 0 14px}
+#view-discover .discover-detail{min-width:0}
+#view-discover #worker-status{margin-bottom:18px}
+#view-discover #notification-delivery{padding:0;border:0;align-items:center}
+#view-discover #notification-status{margin-top:8px;font-size:14px;color:var(--ink)}
+#view-discover #notification-note{margin-top:10px;line-height:1.8}
+@media(max-width:760px){
+ #view-discover .discover-heading{margin:8px 0 24px}
+ .discover-directory{gap:16px}
+ .discover-group{border-radius:20px}
+ .discover-row{min-height:70px;padding:15px 17px;gap:12px}
+ .discover-row+.discover-row:before{left:63px;right:17px}
+ .discover-icon{flex-basis:32px;width:32px;height:32px;border-radius:9px}
+ .discover-row-label{font-size:15px}
+ .discover-row-meta{font-size:11px}
+ #discover-back{margin-bottom:10px}
+}
+@media(max-width:350px){
+ .discover-directory{gap:12px}
+ .discover-row{padding:12px 14px;gap:10px;min-height:60px}
+ .discover-row+.discover-row:before{left:56px;right:14px}
+ .discover-icon{flex-basis:30px;width:30px;height:30px}
+ .discover-icon .icon{width:22px;height:22px}
+ .discover-row-meta{font-size:10px}
+}
+@media(prefers-color-scheme:dark){
+ .discover-group{border-color:#ffffff0b}
+ .discover-icon{background:#303e59;color:#adc2ff}
+ .discover-icon-income{background:#253e39;color:#8ac4b0}
+ .discover-icon-market{background:#253e39;color:#8ac4b0}
+ .discover-icon-alert{background:#443a29;color:#dfbb80}
+ .discover-icon-notification{background:#293b50;color:#9fbcdf}
+ .discover-icon-daily{background:#38324b;color:#c1b1e3}
+}
+@media(prefers-reduced-transparency:reduce){.discover-group{background:var(--solid)}}

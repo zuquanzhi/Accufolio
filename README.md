@@ -25,6 +25,7 @@ Accufolio 是单用户、自托管的资产配置看板。账户说明钱放在�
 <summary>查看更多：资产配置、策略曲线、行情关注与移动端</summary>
 <br>
 <img src="assets/previews/mobile-pages.jpg" alt="移动端主要页面" width="1000">
+<img src="assets/previews/mobile-income.png" alt="税后收入逐月测算" width="280">
 <img src="assets/previews/mobile-investments.png" alt="证券投资总览" width="280">
 <img src="assets/previews/mobile-allocation.png" alt="证券配置与持仓明细" width="280">
 <img src="assets/previews/web-backtest.png" alt="策略回测结果" width="800">
@@ -43,10 +44,12 @@ Accufolio 是单用户、自托管的资产配置看板。账户说明钱放在�
 | **资产** | 默认首页。净资产、明确的账户、现金余额与账户配置；点按账户核对流水。 |
 | **投资** | 证券持仓、未实现与已实现盈亏、历史曲线；配置与持仓、投入与收益各有详情。 |
 | **记录** | 已完成的证券买卖，包含账户、币种、手续费与策略标签。 |
-| **发现** | 四种定投策略、分级提醒、退潮信号和可选 Webhook。 |
+| **发现** | 分组入口：策略回测、税后收入、行情关注、提醒记录、消息通知和每日摘要。 |
 | **设置** | 展示币种、时区、登录、备份、连接和更新。 |
 
 现金余额由流水累计，证券按账户与标的计算，再汇总展示；目标只存权重。支持 USD、人民币 CNY、HKD、EUR：当前金额使用最新参考汇率，历史点使用当时已发布的汇率。缺失行情或汇率时明确显示不可计算。
+
+普通工资的[税后收入测算](guides/income.md)在本机完成，可查看全年逐月个税和到手收入；输入不会写入资产账本。
 
 ## 工作方式
 

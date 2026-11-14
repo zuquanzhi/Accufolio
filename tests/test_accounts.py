@@ -170,6 +170,26 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(reader.execute('SELECT count(*) FROM accounts').fetchone()[0],1)
             writer.rollback()
 
+    def test_first_initializer_commits_during_readiness_check(self):
+        # Force the precise interleaving: an empty table list is fetched, then
+        # another process commits the complete schema before inspection resumes.
+        with closing(sqlite3.connect(self.path)) as reader, closing(sqlite3.connect(self.path)) as writer:
+            class InterleavedConnection:
+                fired = False
+                def __getattr__(self, key):
+                    return getattr(reader, key)
+                def execute(self, sql, *args):
+                    cursor = reader.execute(sql, *args)
+                    if 'SELECT name FROM sqlite_master' in sql and not self.fired:
+                        self.fired = True
+                        rows = cursor.fetchall()
+                        initialize(writer)
+                        return iter(rows)
+                    return cursor
+            initialize(InterleavedConnection())
+            self.assertEqual(reader.execute('PRAGMA user_version').fetchone()[0],2)
+            self.assertEqual(reader.execute('SELECT count(*) FROM accounts').fetchone()[0],1)
+
     def test_account_opening_date_cannot_contradict_existing_history(self):
         account=self.cash(self.account(),100)['account']
         model=Account(name=account['name'],kind='bank',purpose='savings',currency='USD',opened_on='2026-02-01')

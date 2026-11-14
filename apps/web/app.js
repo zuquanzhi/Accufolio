@@ -63,7 +63,7 @@ function readDraft(name) {
 }
 function saveDraft(name,data) {sessionStorage.setItem(DRAFT_KEYS[name],JSON.stringify(data));}
 function clearDraft(name) {sessionStorage.removeItem(DRAFT_KEYS[name]);}
-function hasDrafts() {return ['backtest','watch'].some(name=>Boolean(readDraft(name)));}
+function hasDrafts() {return ['backtest','watch'].some(name=>Boolean(readDraft(name)))||[...pageEntries.values()].some(entry=>entry.controller.hasDrafts?.());}
 async function request(path,options={}) {
   const method=(options.method||'GET').toUpperCase();
   const cacheable=method==='GET' && path!=='/api/version';

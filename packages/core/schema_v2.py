@@ -11,6 +11,11 @@ REQUIRED_TABLES = {'accounts','cash_entries','trades','fx_rates','settings','all
 
 def _ready(con):
     """Read-only inspection must not start a transaction that later needs upgrading."""
+    # Observe the publication marker first. A concurrent first initializer may
+    # commit between these reads; an old table list paired with its NEW marker
+    # would otherwise falsely report a damaged database. Version 0 simply takes
+    # the serialized recheck in initialize(), even if tables appear meanwhile.
+    version = con.execute('PRAGMA user_version').fetchone()[0]
     existing = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for table, required in {
         'trades': {'account_id','currency','fee','strategy'},
@@ -19,7 +24,6 @@ def _ready(con):
     }.items():
         if table in existing and not required.issubset({r[1] for r in con.execute('PRAGMA table_info('+table+')')}):
             raise RuntimeError('Existing database is not Accufolio schema v2. Back it up and adapt it explicitly before starting.')
-    version = con.execute('PRAGMA user_version').fetchone()[0]
     if version == 2:
         if not REQUIRED_TABLES.issubset(existing):
             raise RuntimeError('Existing schema v2 database is incomplete. Restore or adapt it before starting.')

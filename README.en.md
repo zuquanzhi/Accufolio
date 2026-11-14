@@ -25,6 +25,7 @@ Asset and transaction data is read-only in Web, PWA, and Android, backed by your
 <summary>More views: allocation, strategy curves, monitoring, and mobile access</summary>
 <br>
 <img src="assets/previews/mobile-pages.jpg" alt="Main mobile pages" width="1000">
+<img src="assets/previews/mobile-income.png" alt="Monthly take-home income estimate" width="280">
 <img src="assets/previews/mobile-investments.png" alt="Investments overview" width="280">
 <img src="assets/previews/mobile-allocation.png" alt="Securities allocation and holdings" width="280">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
@@ -43,10 +44,12 @@ The device frames are illustrative; the screenshots show the running application
 | **Assets** | Default home: net assets, named accounts, cash balances, and account allocation. Open an account to inspect its journal. |
 | **Investments** | Securities holdings, realized and unrealized gains, historical curves, and separate allocation/performance details. |
 | **Records** | Completed securities trades with account, currency, fees, and strategy. |
-| **Discover** | Four contribution strategies, movement alerts, calm signals, and optional Webhooks. |
+| **Discover** | Grouped entries for backtesting, take-home income, watchlist, alerts, notifications, and daily summaries. |
 | **Settings** | Display currency, timezone, login, backups, connection, and updates. |
 
 Cash balances sum journal entries; securities are calculated per account and symbol before aggregation. Targets store weights only. Choose USD, CNY, HKD, or EUR: current values use the latest reference rate, while historical points use rates published by that date. Missing quotes or exchange rates remain unavailable.
+
+The [take-home income calculator](guides/income.md) runs locally, estimating monthly mainland China salary withholding without sending salary inputs or changing asset records.
 
 ## How it works
 

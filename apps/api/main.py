@@ -36,7 +36,7 @@ async def lifespan(app):
     # distinguishes an interrupted scan from a completed cycle.
     thread.join(timeout=1)
 
-app = FastAPI(title='Accufolio', version='2.0.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='2.1.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -98,7 +98,7 @@ def version(actor: str = Depends(authorize)):
     for path in paths:
         digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '2.0.0'}
+    return {'version': digest.hexdigest(), 'release': '2.1.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
@@ -275,6 +275,7 @@ def page_script(filename: str):
 @app.get('/{name}')
 def assets(name: str):
     allowed = {'app.js': ('app.js', 'application/javascript'), 'style.css': ('style.css', 'text/css'),
+               'income.js': ('income.js', 'application/javascript'),
                'charts.js': ('charts.js', 'application/javascript'), 'charts.css': ('charts.css', 'text/css'),
                'dashboard.css': ('dashboard.css', 'text/css'),
                'sw.js': ('sw.js', 'application/javascript'), 'manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json'),

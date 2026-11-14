@@ -137,7 +137,7 @@ def health(actor: str = Depends(authorize)):
     delivery = notifications.delivery_status(db)
     worker = worker_status()
     with db() as con:
-        return {'release':'2.0.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC', 'notifications': delivery, 'worker': worker}
+        return {'release':'2.1.0','database':con.execute('PRAGMA quick_check').fetchone()[0], 'last_scan':con.execute('SELECT max(ts) FROM scans').fetchone()[0], 'timezone':'UTC', 'notifications': delivery, 'worker': worker}
 
 @router.get('/export')
 def export(actor: str = Depends(authorize)):

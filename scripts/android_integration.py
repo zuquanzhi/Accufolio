@@ -155,7 +155,7 @@ def wait_ui(predicate, description, reject_login=False, timeout=50):
 
 
 def wait_page(route):
-    distinctive={'/assets':'净资产','/investments':'持仓市值','/records':'投资中的每一步','/discover':'策略实验室','/settings':'展示币种'}[route]
+    distinctive={'/assets':'净资产','/investments':'持仓市值','/records':'投资中的每一步','/discover':'策略回测','/settings':'展示币种'}[route]
     def ready(ui):
         values=items(ui)
         return all(label in values for label in ['资产','投资','记录','发现','设置']) and any(distinctive in item for item in values)
@@ -250,6 +250,13 @@ def run(apk):
             for label, route in [('记录','/records'),('发现','/discover'),('设置','/settings')]:
                 tap(named(ui,label));ui=wait_page(route)
                 assert document_requests()==initial_documents,('Tab reloaded the document',route,document_requests())
+                if route=='/discover':
+                    tap(scroll_to('策略回测'))
+                    wait_ui(lambda tree:any('获取行情并回测' in value for value in items(tree)),'discovery backtest detail',reject_login=True)
+                    assert document_requests()==initial_documents,('Discovery detail reloaded document',document_requests())
+                    adb('shell','input','keyevent','4')
+                    ui=wait_ui(lambda tree:any('税后收入' in value for value in items(tree)) and any('行情关注' in value for value in items(tree)) and not any('获取行情并回测' in value for value in items(tree)), 'native Back to discovery entries',reject_login=True)
+                    assert document_requests()==initial_documents,('Discovery back reloaded document',document_requests())
             capture('android-settings-page.png')
             # These taps are real input events, exercising MainActivity's origin/frame/gesture checks.
             tap(scroll_to('连接地址'));ui=wait_ui(lambda tree:any(n.attrib.get('class')=='android.widget.EditText' for n in tree.iter('node')),'connection dialog',reject_login=True)

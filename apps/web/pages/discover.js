@@ -21,11 +21,50 @@ for(const [name,selector] of [['backtest','#backtest'],['watch','#watch-form']])
   $(selector).addEventListener('input',persistDiscovery);$(selector).addEventListener('change',persistDiscovery);
 }
 if(backtestForm.elements.bars.value.trim())$('#manual-data').open=true;
-function chooseDiscovery(name){
-  name=name==='monitoring'?'monitoring':'backtest';$$('[data-discover]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.discover===name)));
-  $('#backtest-panel').hidden=name!=='backtest';$('#monitoring').hidden=name!=='monitoring';sessionStorage.setItem('accufolio.discover-tab',name);
+const toolNames={backtest:'策略回测',income:'税后收入',watchlist:'行情关注',alerts:'提醒记录',notifications:'消息通知',daily:'每日摘要'};
+const monitoringTools=new Set(['watchlist','alerts','notifications','daily']);
+let selected='',active=false,income=null;
+const scrolls=new Map();
+function requestedTool(){const name=new URLSearchParams(location.search).get('tool');return Object.hasOwn(toolNames,name)?name:'';}
+function syncActivity(){
+  clearInterval(interval);interval=null;
+  if(active&&monitoringTools.has(selected)){
+    if(seenRevision!==dataRevision||Date.now()-lastLoaded>CACHE_TTL)loadMonitoring();
+    interval=setInterval(loadMonitoring,60000);
+  }
+  if(active&&selected==='backtest')loadBacktestFx();
 }
-$$('[data-discover]').forEach(button=>button.onclick=()=>chooseDiscovery(button.dataset.discover));chooseDiscovery(sessionStorage.getItem('accufolio.discover-tab'));
+function showTool(){
+  selected=requestedTool();
+  $('#discover-home').hidden=Boolean(selected);$('#discover-back').hidden=!selected;
+  $$('[data-discover-panel]').forEach(panel=>panel.hidden=panel.dataset.discoverPanel!==selected);
+  $('#discover-title').textContent=toolNames[selected]||'发现';
+  document.title=$('#discover-title').textContent+' · Accufolio';
+  if(selected==='income'&&!income&&window.AccufolioIncome)income=AccufolioIncome.mount($('#income-calculator'));
+  syncActivity();
+}
+function restoreScroll(focus=false){
+  const target=selected;
+  queueMicrotask(()=>{if(!active||!root.isConnected||selected!==target)return;window.scrollTo({top:scrolls.get(target)||0,behavior:'instant'});if(focus)$('#discover-title').focus({preventScroll:true});});
+}
+function openTool(name){
+  if(!Object.hasOwn(toolNames,name))return;
+  scrolls.set(selected,window.scrollY);scrolls.set(name,0);
+  history.pushState({page:'discover',discoverTool:name},'','/discover?tool='+name);
+  showTool();restoreScroll(true);
+}
+function closeTool(){
+  if(!selected)return false;
+  scrolls.set(selected,window.scrollY);
+  if(history.state?.discoverTool===selected)history.back();
+  else{history.replaceState({page:'discover'},'','/discover');showTool();restoreScroll(true);}
+  return true;
+}
+$$('[data-discover-tool]').forEach(link=>link.onclick=event=>{
+  if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+  event.preventDefault();openTool(link.dataset.discoverTool);
+});
+$('#discover-back').onclick=closeTool;
 let runToken=0, activeRequest=null, backtestChart=null,savedBacktest=null,savedMonitoring=null;
 function clearBacktestResult(){savedBacktest=null;backtestChart?.destroy();backtestChart=null;$('#backtest-result').replaceChildren();}
 function setBacktestBusy(busy){$('#run-history').disabled=busy;$('#run-manual').disabled=busy;$('#backtest').setAttribute('aria-busy',String(busy));}
@@ -143,7 +182,7 @@ function renderMonitoring([watchlist,alerts,daily,signals,delivery,health]){
   $('#alert-items').replaceChildren(...(alerts||[]).map(item=>textRow(item.symbol,`${formatTimestamp(item.ts)}（${timezoneLabel()}） · ${item.message}`)));
   if(!alerts?.length)$('#alert-items').append(emptyState(alerts?'暂无已记录的提醒。':'暂时无法读取行情提醒。'));
   $('#daily-items').replaceChildren(...(daily||[]).slice(0,15).map(item=>textRow(`${item.day} · ${item.symbol}`,`检查 ${item.scans} 次 · 失败 ${item.failures} 次 · 最低 ${item.low==null?'—':money(item.low)} / 最高 ${item.high==null?'—':money(item.high)}`)));
-  if(!daily)$('#daily-items').append(emptyState('暂时无法读取每日摘要。'));
+  if(!daily?.length)$('#daily-items').append(emptyState(daily?'暂无每日检查摘要。':'暂时无法读取每日摘要。'));
   renderNotificationStatus(delivery);
 }
 $('#retry-notifications').onclick=async()=>{
@@ -154,5 +193,5 @@ $('#retry-notifications').onclick=async()=>{
 };
 $('#watch-form').onsubmit=async event=>{event.preventDefault();const button=$('#watch-form button');button.disabled=true;try{const form=new FormData(event.target);await request('/api/watchlist',{method:'PUT',body:JSON.stringify({symbol:form.get('symbol'),threshold:Number(form.get('threshold'))})});$('#watch-form').reset();clearDraft('watch');await loadMonitoring();}catch(error){notify(error.message);}finally{button.disabled=false;}};
 $('#scan-now').onclick=async()=>{const button=$('#scan-now');button.disabled=true;try{await request('/api/scan',{method:'POST'});await loadMonitoring();}catch(error){notify(error.message);}finally{button.disabled=false;}};
-return {activate(){if(seenRevision!==dataRevision||Date.now()-lastLoaded>CACHE_TTL)loadMonitoring();loadBacktestFx();if(!interval)interval=setInterval(loadMonitoring,60000);},preferencesChanged(){if(savedBacktest){const {result,bars,monthly,historicalFx}=savedBacktest;renderBacktest(result,bars,monthly,historicalFx);loadBacktestFx();}if(savedMonitoring)renderMonitoring(savedMonitoring);},deactivate(){persistDiscovery();clearInterval(interval);interval=null;}};
+return {activate(){if(active)scrolls.set(selected,window.scrollY);active=true;showTool();restoreScroll();},back:closeTool,hasDrafts(){return Boolean(income?.hasDrafts?.());},preferencesChanged(){if(savedBacktest){const {result,bars,monthly,historicalFx}=savedBacktest;renderBacktest(result,bars,monthly,historicalFx);loadBacktestFx();}if(savedMonitoring)renderMonitoring(savedMonitoring);},deactivate(){scrolls.set(selected,window.scrollY);active=false;persistDiscovery();clearInterval(interval);interval=null;}};
 };
