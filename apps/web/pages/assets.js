@@ -58,7 +58,7 @@ function journalProblem(){
 function renderEntries(){
   if(!entries||entriesAccount!==selected)return;
   const account=data?.accounts.find(account=>account.id===selected);
-  if(!account||(account.revision??null)!==entriesRevision){journalProblem();return;}
+  if(!account||account.revision!==entriesRevision){journalProblem();return;}
   // The endpoint returns the entire account journal. Reconstruct native-currency
   // balances in the same date/id order as the ledger, then display newest first.
   if(!Array.isArray(entries)||entries.some(entry=>entry.currency!==account.currency||!Number.isFinite(entry.amount))||account.entry_count!=null&&entries.length!==account.entry_count){journalProblem();return;}
@@ -79,9 +79,9 @@ function renderEntries(){
   }));if(!entries.length)$('#account-cash-entries').append(emptyState('尚未记录资金流水。'));
 }
 async function loadEntries(){
-  if(selected===null)return;const snapshot=data?.accounts.find(account=>account.id===selected);if(!snapshot)return;const expected=snapshot.revision??null,key=selected+'|'+expected+'|'+dataRevision;if(key===entriesKey&&Date.now()-entriesLoaded<CACHE_TTL)return;entriesKey=key;entriesLoaded=Date.now();entries=null;entriesAccount=selected;entriesRevision=expected;$('#account-cash-entries').replaceChildren(emptyState('正在读取流水…'));const own=++entriesToken,account=selected,current=dataRevision;
-  const valid=()=>own===entriesToken&&selected===account&&current===dataRevision&&data?.accounts.some(row=>row.id===account&&(row.revision??null)===expected);
-  try{const rows=await request('/api/accounts/'+account+'/cash-entries'+(expected==null?'':'?expected_revision='+encodeURIComponent(expected)));if(!valid())return;entries=rows;renderEntries();}catch{if(!valid())return;journalProblem();}
+  if(selected===null)return;const snapshot=data?.accounts.find(account=>account.id===selected);if(!snapshot)return;const expected=snapshot.revision;if(!Number.isSafeInteger(expected)||expected<0){journalProblem();return;}const key=selected+'|'+expected+'|'+dataRevision;if(key===entriesKey&&Date.now()-entriesLoaded<CACHE_TTL)return;entriesKey=key;entriesLoaded=Date.now();entries=null;entriesAccount=selected;entriesRevision=expected;$('#account-cash-entries').replaceChildren(emptyState('正在读取流水…'));const own=++entriesToken,account=selected,current=dataRevision;
+  const valid=()=>own===entriesToken&&selected===account&&current===dataRevision&&data?.accounts.some(row=>row.id===account&&row.revision===expected);
+  try{const rows=await request('/api/accounts/'+account+'/cash-entries?expected_revision='+encodeURIComponent(expected));if(!valid())return;entries=rows;renderEntries();}catch{if(!valid())return;journalProblem();}
 }
 function render(){
   if(!data)return;$('#assets-total-label').textContent='净资产 · '+displayCurrency();$('#assets-total').textContent=data.complete?money(data.net_assets_usd):'—';$('#assets-securities').textContent=money(data.securities_value_usd);$('#assets-cash').textContent=money(data.cash_value_usd);$('#asset-account-count').textContent=data.accounts.length+' 个账户';

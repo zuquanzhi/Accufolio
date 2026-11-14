@@ -66,14 +66,17 @@ def main():
                     'username': 'admin', 'password': 'accounts-test', 'remember': True}, headers={'X-Accufolio': '1'}).ok
                 page = context.new_page(); errors = []; writes = []; pending = []
                 state = {'fail': False, 'hold': None, 'accounts': deepcopy(ACCOUNTS), 'journals': deepcopy(ENTRIES),
-                         'entry_status': 200, 'mismatch': None}
+                         'entry_status': 200, 'mismatch': None, 'bad_revision': None}
                 entry_requests = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.on('request', lambda request: writes.append(request.url) if request.method not in ('GET', 'HEAD') else None)
                 def assets(route):
                     if state['fail']:
                         route.fulfill(status=503, json={'detail': 'Unavailable'}); return
-                    route.fulfill(json={'accounts': state['accounts'], 'net_assets_usd': 1000, 'cash_value_usd': 600,
+                    accounts = deepcopy(state['accounts'])
+                    if state['bad_revision'] == 'missing': accounts[1].pop('revision')
+                    elif state['bad_revision'] == 'invalid': accounts[1]['revision'] = '8'
+                    route.fulfill(json={'accounts': accounts, 'net_assets_usd': 1000, 'cash_value_usd': 600,
                                         'securities_value_usd': 400, 'complete': True, 'fx': RATES, 'warnings': []})
                 page.route('**/api/assets', assets)
                 page.route('**/api/allocation', lambda route: route.fulfill(json={'securities': {}, 'net_worth': {}}))
@@ -208,6 +211,13 @@ def main():
                 expect(page.locator('#account-cash-entries')).to_contain_text('流水与账户数据暂未同步')
                 expect(row(22)).to_have_count(0)
                 state['entry_status'] = 200; page.clock.fast_forward(60_000)
+                expect(row(22)).to_be_visible()
+                for bad_revision in ['missing', 'invalid']:
+                    count = len(entry_requests); state['bad_revision'] = bad_revision; page.clock.fast_forward(60_000)
+                    expect(page.locator('#account-cash-entries')).to_contain_text('流水与账户数据暂未同步')
+                    expect(row(22)).to_have_count(0)
+                    assert len(entry_requests) == count, 'Requested an unversioned journal'
+                state['bad_revision'] = None; page.clock.fast_forward(60_000)
                 expect(row(22)).to_be_visible()
                 assert not writes, writes
                 assert not errors, errors
