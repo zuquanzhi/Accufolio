@@ -45,7 +45,8 @@ def serve():
     import apps.api.main as api
     import apps.api.dashboard as dashboard
     from apps.api.allocation import save_targets
-    from apps.api.accounts import Account, CashEntry, save_account, add_cash_entry
+    from apps.api.accounts import Account, CashEntry, save_account, add_cash_entry, list_accounts
+    from apps.api.settlements import set_trade_settlement
     import apps.api.fx as fx
     import packages.providers as providers
     from packages.providers import Quote, QuoteResult
@@ -63,6 +64,21 @@ def serve():
     dashboard.get_history = history
     api.mutate_trade('add', api.Trade(symbol='QQQM', trade_date=date(2025, 1, 2), shares=2, price=180), None, 'integration')
     api.mutate_trade('add', api.Trade(symbol='AAPL', trade_date=date(2025, 2, 3), shares=3, price=190), None, 'integration')
+    # Complete the synthetic journal: holdings alone cannot prove cash was paid.
+    # Keep the original $2,000 valuation with $930 funded and fully invested.
+    def brokerage_revision():
+        return next(a['revision'] for a in list_accounts() if a['id']==1)
+    add_cash_entry(CashEntry(account_id=1,entry_date=date(2025,1,1),kind='balance_open',
+                            amount=930,currency='USD'),brokerage_revision(),'integration-funding',
+                   dry_run=False,actor='integration')
+    for trade in api.trades():
+        amount=-(trade['shares']*trade['price']+trade['fee'])
+        entry=add_cash_entry(CashEntry(account_id=1,entry_date=trade['trade_date'],kind='withdraw',
+                                      amount=amount,currency='USD',symbol=trade['symbol']),
+                             brokerage_revision(),'integration-cash-'+str(trade['id']),
+                             dry_run=False,actor='integration')['entry']
+        set_trade_settlement(trade['id'],entry['id'],brokerage_revision(),
+                             'integration-settlement-'+str(trade['id']),dry_run=False,actor='integration')
     account=save_account(Account(name='Savings',kind='bank',purpose='savings',currency='USD'),None,0,'integration-account',dry_run=False,actor='integration')
     add_cash_entry(CashEntry(account_id=account['id'],entry_date=date.today(),kind='balance_open',amount=913.7,currency='USD'),0,'integration-opening',dry_run=False,actor='integration')
     save_targets('securities',{'QQQM':40,'AAPL':60},0,'integration-securities',dry_run=False,actor='integration')
