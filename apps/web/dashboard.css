@@ -24,3 +24,23 @@
 .dividend-security{margin:14px 0 0;border-top:1px solid var(--line);padding-top:14px}.dividend-security>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}.dividend-security>summary small{display:block;font-size:11px;color:var(--muted);margin-top:4px}.dividend-security .trade-row{font-size:12px;padding:12px 0}
 #asset-history-chart .chart-readout{min-height:56px}#asset-history-chart .chart-legend{display:none}
 @media(max-width:760px){.asset-history-panel .trajectory-head{display:flex;flex-wrap:wrap;gap:10px}.asset-history-panel .range-control{margin-top:0}.asset-history-panel .trajectory-head h2{font-size:13px}.asset-history-panel .chart-mode{margin-top:12px}.asset-history-panel .range-control button{min-width:36px;padding-inline:10px}}
+
+.trading-metrics { grid-template-columns: 1.2fr 1fr 1fr; align-items: end; gap: 12px; }
+.trading-metrics strong { font-size: clamp(15px, 2vw, 19px); }
+.trading-metrics .net-result strong { font-size: clamp(20px, 3vw, 29px); }
+.holding summary { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; }
+.holding-result { text-align: right; font-variant-numeric: tabular-nums; }
+.holding-result strong { font-size: 20px; overflow-wrap: anywhere; }
+.holding-result small { margin: 0; }
+.holding-components { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 12px; color: var(--muted); }
+.holding-components > span { overflow-wrap: anywhere; }
+.holding-signals { grid-column: 1 / -1; }
+.holding-weight { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.holding-weight strong { font-size: 11px; color: var(--muted); font-weight: 500; }
+.holding-weight .holding-meter { width: 48px; margin: 0; }
+@media (max-width: 500px) {
+  .dashboard .trading-metrics strong { font-size: 15px; }
+  .dashboard .trading-metrics .net-result strong { font-size: 20px; }
+  .holding summary { grid-template-columns: minmax(0, 1fr) minmax(0, auto); }
+  .holding-weight { justify-content: flex-start; }
+}

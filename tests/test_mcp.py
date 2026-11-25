@@ -12,7 +12,8 @@ class McpTests(unittest.TestCase):
         names = {tool.name for tool in asyncio.run(mcp.list_tools())}
         self.assertTrue({'list_alerts','set_watchlist','trigger_scan'}.isdisjoint(names))
         self.assertTrue({'get_summary','list_trades','get_market_quote','add_trade','undo_trade_change',
-                         'get_asset_history','list_trade_settlements','set_trade_settlement'}.issubset(names))
+                         'get_asset_history','list_trade_settlements','set_trade_settlement',
+                         'get_cost_basis_calibrations','set_cost_basis_calibration'}.issubset(names))
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'ACCUFOLIO_DB': str(Path(tmp)/'test.db')}):
             add_trade(Trade(symbol='qqqm', trade_date='2024-01-01', shares=1, price=100), actor='test')
             self.assertEqual(len(list_trades('qqqm')), 1)

@@ -4,8 +4,12 @@
   <div id="investments-overview">
     <section class="wealth-card dashboard-hero" aria-label="资产概览">
       <div class="wealth-top"><span id="valuation-label">持仓市值（最近行情）· USD</span><span class="subtle" id="holding-count">—</span></div>
-      <strong id="value" class="wealth-value">—</strong><p id="valuation-note" class="valuation-note">整个组合，一眼看清。</p><p id="quote-as-of" class="valuation-note"></p>
-      <div class="wealth-metrics"><div><span>未实现盈亏</span><strong id="pnl">—</strong><small>当前持仓浮动盈亏</small></div><div><span>已实现盈亏</span><strong id="summary-realized">—</strong><small>已卖出部分</small></div></div>
+      <strong id="value" class="wealth-value">—</strong><p id="valuation-note" class="valuation-note"></p><p id="quote-as-of" class="valuation-note"></p>
+      <div class="wealth-metrics trading-metrics">
+        <div class="net-result"><span>交易净盈亏</span><strong id="summary-net">—</strong></div>
+        <div><span>未实现盈亏</span><strong id="pnl">—</strong></div>
+        <div><span>已实现盈亏</span><strong id="summary-realized">—</strong></div>
+      </div>
     <div class="overview-links"><a href="/investments?detail=allocation" data-asset-detail="allocation" class="overview-link"><div><span>配置与持仓</span><strong id="allocation-summary">查看资产分配</strong><small id="allocation-summary-note">市值权重、目标差额与持仓明细</small></div><svg class="icon"><use href="#icon-arrow"/></svg></a><a href="/investments?detail=performance" data-asset-detail="performance" class="overview-link"><div><span>投入与收益</span><strong id="performance-summary">查看投资分析</strong><small>美元 XIRR、投入节奏与计算说明</small></div><svg class="icon"><use href="#icon-arrow"/></svg></a></div>
       <div class="trajectory-head"><h2>投资轨迹 <small id="history-currency"></small></h2><div class="range-control" aria-label="走势图时间范围"><button type="button" data-period="1m">1月</button><button type="button" data-period="3m">3月</button><button type="button" data-period="1y" aria-pressed="true">1年</button><button type="button" data-period="all">全部</button></div></div>
       <div class="chart-mode" aria-label="走势图指标"><button type="button" data-curve="value" aria-pressed="true">市值与投入</button><button type="button" data-curve="pnl" aria-pressed="false">含分红收益</button></div>
@@ -25,7 +29,7 @@
   </div></div>
   <div id="investments-performance" hidden>
   <section class="panel total-return-panel"><div class="section-head"><div><h2>含分红总回报</h2><p>证券交易盈亏与实际到账分红，分别核对。</p></div></div><strong id="investment-total-return" class="return-value">—</strong><div class="return-components"><div><span>交易盈亏</span><strong id="investment-trading-pnl">—</strong></div><span aria-hidden="true">＋</span><div><span>净到账分红</span><strong id="investment-dividends">—</strong></div></div><p id="dividend-coverage" class="field-hint"></p><details id="dividend-detail"><summary>按标的查看分红</summary><div id="dividend-breakdown"></div></details></section>
-  <div id="dashboard-facts" class="dashboard-facts" aria-label="组合计算指标"><div><span>当前持仓成本</span><strong id="cost">—</strong><small id="cost-method"></small></div><div><span>累计买入</span><strong id="buy-total">—</strong></div><div><span>卖出回收</span><strong id="sell-total">—</strong></div><div><span>已实现收益</span><strong id="realized">—</strong></div><div><span>XIRR（美元口径）</span><strong id="xirr">—</strong><small id="xirr-note"></small></div></div>
+  <div id="dashboard-facts" class="dashboard-facts" aria-label="组合计算指标"><div><span>摊薄成本</span><strong id="cost">—</strong><small id="cost-method"></small></div><div><span>累计买入</span><strong id="buy-total">—</strong></div><div><span>卖出回收</span><strong id="sell-total">—</strong></div><div><span>已实现盈亏</span><strong id="realized">—</strong></div><div><span>XIRR（美元口径）</span><strong id="xirr">—</strong><small id="xirr-note"></small></div></div>
   <div class="dashboard-bottom"><section class="panel"><div class="section-head"><div><h2>投入节奏</h2><p>最近六个有记录的月份 · 买入 / 卖出</p></div></div><div id="contribution-bars"></div></section><section class="panel"><div class="section-head"><h2>最近记录</h2><a class="text-button" href="/records">查看全部 <svg class="icon"><use href="#icon-arrow"/></svg></a></div><div id="recent-trades"></div></section></div>
   <details class="dashboard-method"><summary>数据口径与完整性</summary><p id="dashboard-currency-note" class="field-hint"></p><p id="dashboard-method" class="field-hint"></p><div id="dashboard-warnings"></div></details>
   </div>

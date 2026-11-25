@@ -7,11 +7,14 @@ from fastapi import APIRouter, Depends
 from apps.api.auth import authorize as _authorize
 
 from apps.api.history import get_history
+from apps.api.cost_basis import read_calibrations
 from packages.core.dashboard import build_dashboard, summarize_account
 from packages.providers import get_quote
 from packages.core.market_time import market_clock
 
 router = APIRouter()
+BASIS_NOTE = ('从 2.4.0 起，average_price 表示摊薄成本价。净投入加截至估值日的已实现基准得到摊薄成本，'
+              '再除以持仓股数；breakeven_price 是净投入除以持仓股数。交易净盈亏不含分红。')
 
 
 @router.get('/api/dashboard')
@@ -24,6 +27,7 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
         con.execute('BEGIN')
         trades = [dict(row) for row in con.execute('SELECT * FROM trades WHERE deleted=0 ORDER BY trade_date,id')]
         cash_entries = [dict(row) for row in con.execute('SELECT * FROM cash_entries ORDER BY entry_date,id')]
+        calibrations = read_calibrations(con)
         account_names = {row['id']: row['name'] for row in con.execute('SELECT id,name FROM accounts')}
     valid = [row for row in trades if row['trade_date'] <= today.isoformat()]
     first = date.fromisoformat(valid[0]['trade_date']) if valid else today
@@ -74,7 +78,7 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
                                 'available_end': history.get('available_end')})
                 warnings.extend(f'{symbol}：{warning}' for warning in history.get('errors', []) + history.get('warnings', []))
     result = build_dashboard(trades, histories, quotes, start, today, include_history=include_history,
-                             history_end=completed, cash_entries=cash_entries)
+                             history_end=completed, cash_entries=cash_entries, calibrations=calibrations)
     result['market'] = clock
     result['account_names'] = account_names
     result['valuation_basis'] = 'latest_quote'
@@ -88,6 +92,7 @@ def dashboard(period: Literal['1m', '3m', '1y', 'all'] = '1y', include_history: 
     result['method'] = 'trade_reconstruction_unadjusted'
     result['method_note'] = '日期按美东交易日计算。持仓曲线使用已收盘交易日的同日未复权价格，缺失保持断线；顶部使用最近行情。证券总回报与美元 XIRR 纳入已归属分红的实际净到账和按记账日生效的冲销。分红现金不加进证券市值，不假设自动再投资；净投入仍为含手续费的买入支出减卖出净收入。此图不是完整账户净值。'
     warnings.extend(f'分红流水 #{issue["entry_id"]}：{issue["reason"]}。总回报与 XIRR 暂不计算。' for issue in result['dividend_issues'])
+    result['method_note'] += BASIS_NOTE
     if include_history and result['summary']['holding_count'] and result['end'] != completed.isoformat():
         warnings.append(f'最近已收盘交易日为 {completed.isoformat()}；历史曲线仅到 {result["end"] or "暂无完整收盘数据"}，不使用旧价格补成今天。')
     if result['truncated']:

@@ -28,6 +28,7 @@ Asset and transaction data is read-only in Web, PWA, and Android, backed by your
 <img src="assets/previews/mobile-income.png" alt="Monthly take-home income estimate" width="280">
 <img src="assets/previews/mobile-investments.png" alt="Investments overview" width="280">
 <img src="assets/previews/mobile-allocation.png" alt="Securities allocation and holdings" width="280">
+<img src="assets/previews/mobile-cost-basis.png" alt="Trading P&L, average cost and breakeven price for a holding" width="280">
 <img src="assets/previews/web-backtest.png" alt="Strategy backtest results" width="800">
 <img src="assets/previews/mobile-trades.png" alt="Trades on mobile" width="280">
 <img src="assets/previews/web-assets-history.png" alt="All-account historical value and flow-adjusted NAV" width="800">
@@ -68,7 +69,7 @@ Account, cash, trade, target, and shared-setting writes default to a preview. Co
 
 ## Calculation basis
 
-Net assets combine securities values and account cash balances in one currency; liabilities are not modeled. Moving-average securities cost includes transaction fees. Securities total return and USD XIRR include attributable net cash dividends, without adding them to account balances twice.
+Net assets combine securities values and account cash balances in one currency. Each holding shows its average cost after the realized P&L adjustment, its trading breakeven price, and its net trading P&L. Agents can reconcile the realized/unrealized split to a dated broker statement for a specific account and symbol. Securities total return and USD XIRR include attributable net cash dividends.
 
 Latest quotes and historical closes show separate timestamps. History uses same-day unadjusted closes from completed US Eastern trading sessions, retaining gaps. The separate all-account history includes cash, securities, and linked unsettled amounts, with external-flow-adjusted NAV and drawdown. ECB historical rates are stored by date and never replaced by today's rate when converting the past. See [return methods and data coverage](guides/performance.md) for the daily approximation, settlement links, and cash-paid dividend basis.
 

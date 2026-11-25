@@ -36,7 +36,7 @@ async def lifespan(app):
     # state still distinguishes an interrupted backup from a completed cycle.
     thread.join(timeout=1)
 
-app = FastAPI(title='Accufolio', version='2.3.0', lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title='Accufolio', version='2.4.0', lifespan=lifespan, docs_url=None, redoc_url=None)
 
 @app.middleware('http')
 async def private_responses(request, call_next):
@@ -98,7 +98,7 @@ def version(actor: str = Depends(authorize)):
     for path in paths:
         digest.update(str(path.relative_to(ROOT)).replace('\\', '/').encode())
         digest.update(path.read_bytes())
-    return {'version': digest.hexdigest(), 'release': '2.3.0'}
+    return {'version': digest.hexdigest(), 'release': '2.4.0'}
 
 @app.get('/api/trades')
 def trades(actor: str = Depends(authorize)):
@@ -217,26 +217,29 @@ def delete_trade(trade_id: int, actor: str = Depends(authorize), idempotency_key
 def summary(symbol: str, actor: str = Depends(authorize)):
     """One symbol, aggregated after calculating each account's own cost basis."""
     from packages.core.dashboard import summarize_account
+    from apps.api.cost_basis import read_calibrations
+    from apps.api.dashboard import BASIS_NOTE
     symbol = symbol.upper()
     today = et_today()
     with db() as con:
         con.execute('BEGIN')
         rows = [dict(row) for row in con.execute('SELECT * FROM trades WHERE symbol=? AND deleted=0 AND trade_date<=? ORDER BY trade_date,id', (symbol,today.isoformat()))]
         cash_entries = [dict(row) for row in con.execute('SELECT * FROM cash_entries ORDER BY entry_date,id')]
+        calibrations = read_calibrations(con)
         account_names = {row['id']: row['name'] for row in con.execute('SELECT id,name FROM accounts')}
     quote = get_quote(symbol)
     result = summarize_account(rows, {symbol:quote.quote.__dict__ if quote.quote else None}, today,
-                               cash_entries=cash_entries, dividend_symbol=symbol)
+                               cash_entries=cash_entries, dividend_symbol=symbol, calibrations=calibrations)
     totals = result['summary']
-    shares = sum(h['shares'] for h in result['holdings'])
-    cost = totals['cost']
+    basis = {key: totals[key] for key in (
+        'shares', 'cost', 'average_price', 'net_cost', 'diluted_cost', 'breakeven_price',
+        'realized_pnl', 'realized_baseline', 'unrealized_pnl', 'pnl', 'net_pnl')}
     position = None if quote.quote is None else {
-        'shares':shares, 'cost':cost, 'average_price':cost/shares if shares else None,
-        'value':totals['value'], 'pnl':totals['unrealized_pnl'],
-        'return_rate':totals['unrealized_pnl']/cost if cost else None}
+        **basis, 'value': totals['value'],
+        'return_rate': totals['pnl'] / totals['diluted_cost'] if totals['diluted_cost'] > 0 and totals['pnl'] is not None else None}
     return {'scope':'single_symbol', 'currency':'USD', 'as_of':today.isoformat(), 'timezone':'America/New_York',
-            'symbol': symbol, 'shares': shares, 'cost': cost, 'average_price': cost/shares if shares else None,
-            'position': position, 'realized_pnl': totals['realized_pnl'], 'fees':totals['fees'],
+            'symbol': symbol, **basis, 'method_note': BASIS_NOTE,
+            'position': position, 'fees':totals['fees'],
             'cash_dividends': totals['cash_dividends'], 'total_return': totals['total_return'],
             'dividend_basis': 'net_cash_paid',
             'dividends_complete': totals['dividends_complete'], 'dividend_issues': result['dividend_issues'],

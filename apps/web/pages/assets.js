@@ -3,7 +3,6 @@ window.AccufolioPages.assets=function(root){
 const $=selector=>root.querySelector(selector);
 const colors=['#5574da','#6aaca2','#c29b67','#9b85bf','#d08f9a','#77a5c5','#b0ac68'];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
-const nativeMoney=(amount,currency)=>amount==null?'待补充':new Intl.NumberFormat('en-US',{style:'currency',currency}).format(amount);
 const kinds={broker:'券商账户',bank:'银行账户',ewallet:'电子钱包',provident:'公积金账户',other:'账户'};
 const purposes={investing:'投资',savings:'储蓄',emergency:'应急',spending:'日常支出',housing_fund:'公积金'};
 const events={balance_open:'期初余额',deposit:'转入',withdraw:'转出',interest:'利息',transfer_in:'账户转入',transfer_out:'账户转出',fx_in:'换汇转入',fx_out:'换汇转出',fee:'费用',dividend:'分红'};
@@ -33,12 +32,12 @@ function renderWealth(){
   root.querySelectorAll('[data-wealth-curve]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.wealthCurve===wealthCurve)));
   $('#asset-history-currency').textContent='· '+preferredCurrency();
   if(!wealth)return;
-  const currency=wealth.currency,format=value=>value==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency}).format(value),percent=value=>value==null?'—':(value*100).toFixed(2)+'%';
+  const currency=wealth.currency,format=value=>nativeMoney(value,currency),percent=value=>percentText(value,2);
   const unsettled=Boolean(wealth.coverage?.unmatched_trade_ids?.length||wealth.coverage?.issues?.some(issue=>issue.code==='invalid_settlement'));
   $('[data-wealth-curve=value]').textContent=unsettled?'记录估值':'净资产';
   const labels={value:unsettled?'已记录资产估值':'净资产（历史估值）',nav:'净值（资金流调整）· 起点 1',drawdown:'净值回撤'};
   const formatter=wealthCurve==='value'?format:wealthCurve==='drawdown'?percent:value=>value.toFixed(4);
-  const axisFormat=wealthCurve==='drawdown'?value=>(Math.abs(value)<1e-10?0:value*100).toFixed(1)+'%':wealthCurve==='nav'?value=>value.toFixed(2):undefined;
+  const axisFormat=wealthCurve==='drawdown'?value=>percentText(value,1):wealthCurve==='nav'?value=>value.toFixed(2):undefined;
   wealthChart?.destroy();wealthChart=AccufolioCharts.renderLine($('#asset-history-chart'),{height:160,title:labels[wealthCurve],format:formatter,axisFormat,includeZero:wealthCurve==='drawdown',series:[{key:wealthCurve,label:labels[wealthCurve],color:wealthCurve==='drawdown'?'#b46e83':'#5574da',points:(wealth.series||[]).map(point=>({day:point.day,value:point[wealthCurve]}))}],emptyMessage:wealthCurve==='value'?'缺少完整历史估值，请核对行情与汇率。':'数据尚不足以计算净值与回撤，请查看下方数据说明。'});
   const summary=wealth.summary||{};$('#wealth-twr').textContent=percent(summary.twr);$('#wealth-drawdown').textContent=percent(summary.max_drawdown);$('#wealth-drawdown-date').textContent=summary.drawdown_date||'按剔除入出金后的净值计算';$('#wealth-gain').textContent=format(summary.gain);$('#wealth-flow').textContent=format(summary.net_external_flow);
   $('#wealth-method-note').textContent=wealth.method_note||'';
@@ -83,7 +82,7 @@ function renderAllocation(){
     items.forEach((item,index)=>{if(!(item.value_usd>0))return;const weight=item.value_usd/total,c=document.createElementNS(ns,'circle');for(const [k,v] of Object.entries({cx:60,cy:60,r:48,fill:'none',stroke:colors[index%colors.length],'stroke-width':13,'stroke-dasharray':`${weight*circumference} ${circumference}`,'stroke-dashoffset':-offset*circumference}))c.setAttribute(k,v);svg.append(c);offset+=weight;});
     const center=node('div',null,'ring-center');center.append(node('strong',items.length),node('span','个账户'));ring.append(svg,center);
   }
-  $('#total-allocation-legend').replaceChildren(...items.map((account,index)=>{const row=node('div',null,'allocation-row');row.dataset.accountId=account.id;const label=node('span',null,'allocation-name'),dot=node('i',null,'allocation-dot');dot.style.background=colors[index%colors.length];label.append(dot,document.createTextNode(account.name));row.append(label,node('strong',complete&&total>0&&account.value_usd!=null?(account.value_usd/total*100).toFixed(1)+'%':'—'));const target=allocation?.net_worth?.['account:'+account.id];if(target!=null){const difference=complete&&account.value_usd!=null?total*target/100-account.value_usd:null;row.append(node('small',`目标 ${target}%`+(difference==null?'':` · 差额 ${difference>0?'+':''}${money(difference)}`)));}return row;}));
+  $('#total-allocation-legend').replaceChildren(...items.map((account,index)=>{const row=node('div',null,'allocation-row');row.dataset.accountId=account.id;const label=node('span',null,'allocation-name'),dot=node('i',null,'allocation-dot');dot.style.background=colors[index%colors.length];label.append(dot,document.createTextNode(account.name));row.append(label,node('strong',complete&&total>0&&account.value_usd!=null?(account.value_usd/total*100).toFixed(1)+'%':'—'));const target=allocation?.net_worth?.['account:'+account.id];if(target!=null){const difference=complete&&account.value_usd!=null?total*target/100-account.value_usd:null;row.append(node('small',`目标 ${target}%`+(difference==null?'':` · 差额 ${money(difference,true)}`)));}return row;}));
   $('#assets-allocation-note').textContent=unsettled?'请让 Agent 补充交易与现金流水的结算关联，确认应收应付款后再计算配置。':allocationError?'配置目标暂不可用，当前占比仍可查看。':'按各账户总估值计算；投资账户包含证券与账户现金。';
 }
 function renderAccount(account){
@@ -111,7 +110,8 @@ function renderEntries(){
   const ordered=[...entries].sort((a,b)=>a.entry_date.localeCompare(b.entry_date)||a.id-b.id);
   const balances=new Map(),reversed=new Map();let total=0,correction=0;
   for(const entry of ordered){const adjusted=entry.amount-correction,next=total+adjusted;correction=(next-total)-adjusted;total=next;balances.set(entry.id,total);if(entry.reverses_entry_id!=null)reversed.set(entry.reverses_entry_id,entry.id);}
-  if(!Number.isFinite(account.balance)||!Number.isFinite(total)||Math.abs(total-account.balance)>1e-8+Math.abs(account.balance)*Number.EPSILON*4){journalProblem();return;}
+  // The account API publishes the native balance to cents; journal legs keep full precision.
+  if(!Number.isFinite(account.balance)||!Number.isFinite(total)||Math.abs(total-account.balance)>0.005+Math.abs(account.balance)*Number.EPSILON*4){journalProblem();return;}
   $('#account-cash-entries').replaceChildren(...ordered.reverse().map(entry=>{
     const title=entry.reverses_entry_id!=null?'冲销流水 #'+entry.reverses_entry_id:(events[entry.kind]||entry.kind)+(reversed.has(entry.id)?' · 已冲销':'');
     const detail=[entry.entry_date,'#'+entry.id,entry.currency];
@@ -120,7 +120,8 @@ function renderEntries(){
     if(entry.symbol)detail.push(entry.symbol);
     if(entry.note)detail.push(entry.note);
     const row=textRow(title,detail.join(' · '));row.dataset.entryId=entry.id;
-    const amounts=node('div',null,'cash-entry-values'),value=node('strong',(entry.amount>0?'+':'')+nativeMoney(entry.amount,entry.currency),'cash-entry-amount');value.dataset.sign=entry.amount>0?'positive':entry.amount<0?'negative':'neutral';
+    const amounts=node('div',null,'cash-entry-values'),value=node('strong',nativeMoney(entry.amount,entry.currency,true),'cash-entry-amount');
+    value.dataset.sign=moneySign(entry.amount);
     const balance=node('small','余额 '+(balances.get(entry.id)==null?'—':nativeMoney(balances.get(entry.id),entry.currency)),'cash-entry-balance');amounts.append(value,balance);row.append(amounts);return row;
   }));if(!entries.length)$('#account-cash-entries').append(emptyState('尚未记录资金流水。'));
 }

@@ -97,9 +97,17 @@ def _rows(con, account_id, as_of=None):
     return [dict(r) for r in con.execute(query+' ORDER BY entry_date,id',args)]
 
 
-def _cash_summary(con, row, as_of=None):
+def _money_amount(amount):
+    """Serialize balances at currency precision after valuation and aggregation."""
+    if amount is None:
+        return None
+    return 0.0 if abs(amount) < 0.005 else round(amount, 2)
+
+
+def _cash_summary(con, row, as_of=None, *, raw=False):
     entries=_rows(con,row['id'],as_of)
-    return {**row,'balance':math.fsum(e['amount'] for e in entries),
+    balance = math.fsum(e['amount'] for e in entries)
+    return {**row,'balance':balance if raw else _money_amount(balance),
             'as_of':max((e['entry_date'] for e in entries),default=None),'entry_count':len(entries),
             'archived':bool(row['archived'])}
 
@@ -202,7 +210,10 @@ def add_cash_entry(entry:CashEntry,expected_revision:int,key:str,dry_run=True,ac
         if prior:return prior
         account=_account(con,entry.account_id,expected_revision,active=True)
         _validate_entry(con,entry,account)
-        if dry_run:return {'preview':data,'expected_revision':expected_revision,'balance_after':_cash_summary(con,account)['balance']+entry.amount}
+        if dry_run:
+            balance = _cash_summary(con, account, raw=True)['balance']
+            return {'preview': data, 'expected_revision': expected_revision,
+                    'balance_after': _money_amount(balance + entry.amount)}
         created=_insert_entry(con,entry);result={'entry':created,'account':_cash_summary(con,_account(con,entry.account_id))}
         return _persist(con,actor,'add_cash_entry',{'entry':created},key,identity,result)
 
@@ -269,7 +280,7 @@ def assets(actor: str=Depends(authorize)):
         # before any provider I/O so data fetching never blocks account writers.
         ensure_schema(con)
         con.execute('BEGIN')
-        accounts=[_cash_summary(con,dict(row)) for row in con.execute('SELECT * FROM accounts WHERE archived=0 ORDER BY id')]
+        accounts=[_cash_summary(con,dict(row),raw=True) for row in con.execute('SELECT * FROM accounts WHERE archived=0 ORDER BY id')]
         trades=[dict(row) for row in con.execute('''SELECT t.* FROM trades t JOIN accounts a ON a.id=t.account_id
             WHERE t.deleted=0 AND a.archived=0 AND t.trade_date<=?''',(today.isoformat(),))]
         cash_entries=[dict(row) for row in con.execute('SELECT * FROM cash_entries')]
@@ -333,7 +344,8 @@ def assets(actor: str=Depends(authorize)):
         missing_quotes.extend(summary['quote_missing_symbols'])
         rate=1 if account['currency']=='USD' else fx.get('rates',{}).get(account['currency'])
         valid_rate=isinstance(rate,(int,float)) and not isinstance(rate,bool) and math.isfinite(rate) and rate>0
-        cash=0.0 if account['balance']==0 else account['balance']/rate if valid_rate else None
+        cash = (account['balance'] / rate if valid_rate else
+                0.0 if abs(account['balance']) < 0.005 else None)
         if cash is None:missing_fx.append(account['currency'])
         timestamps=[h['quote_timestamp'] for h in summary['holdings'] if isinstance(h.get('quote_timestamp'),(int,float)) and math.isfinite(h['quote_timestamp']) and h['quote_timestamp']>0]
         account.update(cash_value_usd=cash,securities_value_usd=security,
@@ -350,10 +362,14 @@ def assets(actor: str=Depends(authorize)):
     recorded_assets=cash_value+security_value if recorded_complete else None
     settlement_complete=not unmatched
     complete=recorded_complete and settlement_complete
+    for account in accounts:
+        for field in ('balance', 'cash_value_usd', 'securities_value_usd', 'value_usd'):
+            account[field] = _money_amount(account[field])
+    recorded_assets = _money_amount(recorded_assets)
     if fx.get('stale'):warnings.append('当前账户折算使用过期参考汇率，请留意汇率日期。')
     return {'as_of':today.isoformat(),'base':'USD','net_assets_usd':recorded_assets if complete else None,
             'recorded_assets_usd':recorded_assets,'recorded_complete':recorded_complete,
             'settlement_complete':settlement_complete,'unmatched_trade_ids':sorted(unmatched),
-            'securities_value_usd':security_value,'cash_value_usd':cash_value,'complete':complete,
+            'securities_value_usd':_money_amount(security_value),'cash_value_usd':_money_amount(cash_value),'complete':complete,
             'missing_fx':sorted(set(missing_fx)),'missing_quotes':sorted(set(missing_quotes)),
             'accounts':accounts,'fx':fx,'quote_sources':sources,'warnings':list(dict.fromkeys(warnings))}

@@ -28,6 +28,7 @@ Accufolio 是单用户、自托管的资产配置看板。账户说明钱放在�
 <img src="assets/previews/mobile-income.png" alt="税后收入逐月测算" width="280">
 <img src="assets/previews/mobile-investments.png" alt="证券投资总览" width="280">
 <img src="assets/previews/mobile-allocation.png" alt="证券配置与持仓明细" width="280">
+<img src="assets/previews/mobile-cost-basis.png" alt="持仓卡的交易净盈亏、摊薄成本与盈亏平衡价" width="280">
 <img src="assets/previews/web-backtest.png" alt="策略回测结果" width="800">
 <img src="assets/previews/mobile-trades.png" alt="手机交易记录" width="280">
 <img src="assets/previews/web-assets-history.png" alt="所有账户的历史资产与资金流调整净值" width="800">
@@ -68,7 +69,7 @@ Accufolio 是单用户、自托管的资产配置看板。账户说明钱放在�
 
 ## 计算口径
 
-净资产为证券市值与现金账户余额的统一币种合计；当前不建模负债。证券采用移动加权平均成本并纳入交易手续费。证券总回报和美元 XIRR 纳入已归属的实际净分红，现金余额不会重复累加。
+净资产为证券市值与现金账户余额的统一币种合计。投资页把摊薄成本价、盈亏平衡价与交易净盈亏分别列出。默认按含手续费的移动加权成本计算已实现盈亏，Agent 可按账户、标的与对账单日期校准盈亏拆分。含分红总回报和美元 XIRR 纳入已归属的实际净分红。
 
 最新行情与历史收盘估值分别标注时间。投资曲线展示证券表现；资产走势按现金、证券及已关联待结算款重建所有账户历史，用外部资金流调整后的净值计算回撤。行情采用美东已完成交易日的未复权收盘价，缺失保持断点。ECB 历史汇率按日期保存，不用今天的汇率倒算过去。日频近似、结算关联和已到账分红口径详见[收益计算说明](guides/performance.md)。
 

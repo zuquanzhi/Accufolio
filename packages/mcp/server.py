@@ -177,6 +177,33 @@ def set_settings(display_currency: str, market_timezone: str, expected_revision:
     return save(display_currency,market_timezone,expected_revision,idempotency_key,dry_run)
 
 @mcp.tool()
+def get_cost_basis_calibrations() -> dict:
+    """Read dated USD realized P&L calibrations by account and stock.
+
+    An unscoped_baseline_usd, if present in older settings, needs explicit attribution.
+    """
+    from apps.api.cost_basis import get_cost_basis_calibrations as read
+    return read()
+
+
+@mcp.tool()
+def set_cost_basis_calibration(account_id: int, symbol: str, as_of: str | None,
+                               realized_baseline_usd: float | None, expected_revision: int,
+                               idempotency_key: str, dry_run: bool = True) -> dict:
+    """Set the broker's cumulative realized P&L in USD through a statement date (inclusive).
+
+    Use a USD brokerage account and its latest list_accounts revision. YYYY-MM-DD includes
+    all trades through the end of the statement date. Shares must still be held on that date.
+    Preview compares the broker amount with ledger realized P&L through that date.
+    Replaces the previous calibration for this account and symbol. Later sales accrue
+    normally until a full exit. Pass null for both as_of and realized_baseline_usd to clear it.
+    """
+    from apps.api.cost_basis import set_cost_basis_calibration as save
+    require_write()
+    return save(account_id, symbol, as_of, realized_baseline_usd, expected_revision, idempotency_key, dry_run)
+
+
+@mcp.tool()
 def list_trade_settlements() -> list[dict]:
     """Read explicit links from securities trades to actual cash movements."""
     from apps.api.settlements import list_settlements

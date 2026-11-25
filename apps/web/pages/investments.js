@@ -2,7 +2,7 @@
 window.AccufolioPages.investments=function(root){
 const $=selector=>root.querySelector(selector),$$=selector=>[...root.querySelectorAll(selector)];
 const colors=['#5574da','#6aaca2','#c29b67','#9b85bf','#d08f9a','#77a5c5','#b0ac68','#8693a7'];
-const usd=value=>value==null?'—':money(value),pct=value=>value==null?'—':(value*100).toFixed(1)+'%';
+const usd=money,pct=percentText;
 let period=sessionStorage.getItem('accufolio.dashboard.period')||'1y';
 if(!['1m','3m','1y','all'].includes(period))period='1y';
 let basis='value',curve='value',token=0,fingerprint='',loaded=0,interval=null,data=null,plan=null,planError=false,chart=null,recentTrades=[];
@@ -24,13 +24,18 @@ function closeDetail(){
   return true;
 }
 $('#asset-detail-back').onclick=closeDetail;
-const sign=(element,value)=>element.dataset.sign=value>0?'positive':value<0?'negative':'neutral';
+function showResult(element,value,signed=false) {
+  element.textContent = money(value,signed);
+  element.dataset.sign = moneySign(displayAmount(value));
+}
 const node=(tag,text,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;return n;};
 function colorFor(symbol){const index=(data?.holdings||[]).map(h=>h.symbol).sort().indexOf(symbol);return colors[Math.max(0,index)%colors.length];}
 function setPressed(selector,key,value){$$(selector).forEach(b=>b.setAttribute('aria-pressed',String(b.dataset[key]===value)));}
 function clear(){
   data=plan=null;recentTrades=[];planError=false;chart?.destroy();chart=null;
-  for(const id of ['value','pnl','summary-realized','cost','shares','buy-total','sell-total','realized','xirr','investment-total-return','investment-trading-pnl','investment-dividends'])$('#'+id).textContent='—';
+  for(const id of ['value','summary-net','pnl','summary-realized','cost','shares','buy-total','sell-total','realized','xirr','investment-total-return','investment-trading-pnl','investment-dividends']){
+    const element=$('#'+id);element.textContent='—';delete element.dataset.sign;
+  }
   $('#xirr-note').textContent='';$('#holding-count').textContent='—';$('#valuation-note').textContent='正在读取组合…';
   $('#quote-as-of').textContent='';$('#allocation-summary').textContent='查看资产分配';$('#allocation-summary-note').textContent='市值权重、目标差额与持仓明细';$('#performance-summary').textContent='查看投资分析';
   $('#holdings-list').replaceChildren(emptyState('正在读取持仓…'));$('#portfolio-chart').replaceChildren(emptyState('正在读取投资轨迹…'));
@@ -42,7 +47,7 @@ function clear(){
 function renderSummary(){
   if(!data)return;const s=data.summary;
   $('#valuation-label').textContent='持仓市值（最近行情）'+' · '+displayCurrency();$('#value').textContent=usd(s.value);$('#holding-count').textContent=s.holding_count+' 项持仓';
-  $('#valuation-note').textContent='股票持仓与投资回报，一眼看清。';
+  $('#valuation-note').textContent='';
   const quoteTimes=data.holdings.map(h=>Number(h.quote_timestamp)).filter(t=>Number.isFinite(t)&&t>0);
   const stamp=t=>formatTimestamp(t,true);
   $('#quote-as-of').textContent=quoteTimes.length?`最近已知行情 ${stamp(Math.min(...quoteTimes))}${Math.max(...quoteTimes)-Math.min(...quoteTimes)>60?' — '+stamp(Math.max(...quoteTimes)):''}（${timezoneLabel()}）`:'行情时间未提供';
@@ -52,9 +57,12 @@ function renderSummary(){
   }
   if(preferredCurrency()!==displayCurrency())$('#quote-as-of').textContent+=' · 汇率暂不可用，仍以 USD 展示';
   else if(displayCurrency()!=='USD')$('#quote-as-of').textContent+=` · ${fxData?.stale?'过期':'参考'}汇率 ${fxData?.as_of||'日期未知'}`;
-  $('#pnl').textContent=usd(s.unrealized_pnl);sign($('#pnl'),s.unrealized_pnl);$('#summary-realized').textContent=usd(s.realized_pnl);sign($('#summary-realized'),s.realized_pnl);$('#cost').textContent=usd(s.cost);$('#shares').textContent=Number(s.shares||0).toFixed(4);
-  $('#cost-method').textContent='按移动加权平均法计算';
-  $('#buy-total').textContent=usd(s.buy_total);$('#sell-total').textContent=usd(s.sell_total);$('#realized').textContent=usd(s.realized_pnl);sign($('#realized'),s.realized_pnl);
+  showResult($('#summary-net'),s.net_pnl,true);
+  showResult($('#pnl'),s.unrealized_pnl);
+  showResult($('#summary-realized'),s.realized_baseline);
+  $('#cost').textContent=usd(s.diluted_cost);$('#shares').textContent=Number(s.shares||0).toFixed(4);
+  $('#cost-method').textContent='净投入加已实现盈亏';
+  $('#buy-total').textContent=usd(s.buy_total);$('#sell-total').textContent=usd(s.sell_total);showResult($('#realized'),s.realized_baseline);
   $('#xirr').textContent=pct(s.xirr);$('#xirr-note').textContent=s.xirr==null?(s.xirr_reason||'样本不足'):'美元买卖、手续费与净到账分红现金流，不含汇率收益';
   $('#allocation-summary').textContent=s.holding_count+' 项持仓';
   const largest=[...data.holdings].filter(h=>h.value_weight!=null).sort((a,b)=>b.value_weight-a.value_weight)[0];
@@ -62,15 +70,15 @@ function renderSummary(){
   $('#performance-summary').textContent=s.xirr==null?'查看投资分析':`XIRR（美元）${pct(s.xirr)}`;
 }
 function renderDividends(){
-  const s=data.summary;$('#investment-total-return').textContent=usd(s.total_return);sign($('#investment-total-return'),s.total_return);
-  $('#investment-trading-pnl').textContent=usd(s.total_pnl);$('#investment-dividends').textContent=usd(s.cash_dividends);
+  const s=data.summary;showResult($('#investment-total-return'),s.total_return);
+  $('#investment-trading-pnl').textContent=usd(s.net_pnl);$('#investment-dividends').textContent=usd(s.cash_dividends);
   $('#dividend-coverage').textContent=s.dividends_complete===false?'部分分红归属尚未核对，下方仅列已归属金额；总回报与 XIRR 暂不计算。':'净到账分红按实际现金流水累计并扣除冲销。分红已在账户现金中，不会再次计入证券市值。';
   const items=(data.dividend_breakdown||[]).map(item=>{
     const section=node('details',null,'dividend-security');section.dataset.symbol=item.symbol;
     const summary=node('summary'),copy=node('span');copy.append(node('strong',item.symbol),node('small',data.holdings.some(row=>row.symbol===item.symbol)?'当前持仓':'当前已无持仓'));
     summary.append(copy,node('strong',usd(item.cash_dividends),'dividend-value'));section.append(summary);
     for(const account of item.accounts||[])section.append(textRow(data.account_names?.[account.account_id]||'账户 #'+account.account_id,'净到账 '+usd(account.cash_dividends)));
-    for(const event of (data.dividend_events||[]).filter(event=>event.symbol===item.symbol).reverse())section.append(textRow(event.day+(event.reverses_entry_id!=null?' · 冲销 #'+event.reverses_entry_id:' · 分红 #'+event.entry_id),`${data.account_names?.[event.account_id]||'账户 #'+event.account_id} · ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(event.amount)} USD`));
+    for(const event of (data.dividend_events||[]).filter(event=>event.symbol===item.symbol).reverse())section.append(textRow(event.day+(event.reverses_entry_id!=null?' · 冲销 #'+event.reverses_entry_id:' · 分红 #'+event.entry_id),`${data.account_names?.[event.account_id]||'账户 #'+event.account_id} · ${nativeMoney(event.amount,'USD')} USD`));
     return section;
   });
   for(const issue of data.dividend_issues||[])items.push(textRow('待核对 · 流水 #'+issue.entry_id,[data.account_names?.[issue.account_id]||'账户 #'+issue.account_id,issue.symbol,issue.reason].filter(Boolean).join(' · ')));
@@ -88,7 +96,7 @@ function allocations(){
 function renderAllocation(){
   if(!data)return;setPressed('[data-basis]','basis',basis);
   const {total,items}=allocations();$('#allocation-total').textContent=basis==='shares'?(total==null?'—':Number(total).toLocaleString()+' 股'):usd(total);
-  $('#allocation-explanation').textContent=basis==='shares'?'股数占比仅比较数量，不代表资金权重。':basis==='cost'?'按当前持仓成本计算，不含已卖出部分。':'按当前持仓市值计算各标的权重。';
+  $('#allocation-explanation').textContent=basis==='shares'?'股数占比仅比较数量，不代表资金权重。':basis==='cost'?'按各持仓的移动加权平均成本分配。':'按当前持仓市值计算各标的权重。';
   $('#allocation-source').textContent=planError?'投资目标暂不可用，请刷新重试。':plan?.updated_at?`投资目标更新于 ${plan.updated_at.slice(0,10)}，由 Agent 管理。`:'尚未提供投资目标，可请 Agent 更新组合配置。';
   const ring=$('#allocation-ring');ring.replaceChildren();
   if(total==null)ring.append(emptyState('部分行情缺失，暂不计算整体占比'));
@@ -101,17 +109,49 @@ function renderAllocation(){
   }
   $('#allocation-legend').replaceChildren(...items.map(i=>{
     const row=node('div',null,'allocation-row');row.dataset.symbol=i.symbol;const name=node('span',null,'allocation-name'),dot=node('i',null,'allocation-dot');dot.style.background=colorFor(i.symbol);name.append(dot,document.createTextNode(i.label));row.append(name,node('strong',pct(i.weight)));
-    let detail=basis==='shares'?Number(i.amount||0).toLocaleString()+' 股':usd(i.amount);if(i.target!=null){detail+=` · 目标 ${i.target}%`;if(i.difference!=null)detail+=` · 差额 ${i.difference>0?'+':''}${usd(i.difference)}`;}row.append(node('small',detail));return row;
+    let detail=basis==='shares'?Number(i.amount||0).toLocaleString()+' 股':usd(i.amount);if(i.target!=null){detail+=` · 目标 ${i.target}%`;if(i.difference!=null)detail+=` · 差额 ${money(i.difference,true)}`;}row.append(node('small',detail));return row;
   }));
 }
 function renderHoldings(){
   const {items}=allocations(),weights=new Map(items.map(i=>[i.symbol,i]));
   $('#holdings-list').replaceChildren(...data.holdings.map(h=>{
     const row=node('details',null,'holding');row.dataset.symbol=h.symbol;const summary=node('summary'),name=node('div',null,'holding-name'),dot=node('i',null,'allocation-dot');dot.style.background=colorFor(h.symbol);
-    const label=node('div');label.append(node('strong',h.symbol),node('small',Number(h.shares).toLocaleString('en-US',{maximumFractionDigits:6})+' 股'));name.append(dot,label);
-    const value=node('div',null,'holding-value');value.append(node('strong',usd(h.value)));const gain=node('small','浮盈 '+usd(h.pnl));sign(gain,h.pnl);value.append(gain);
-    const weight=node('div',null,'holding-weight'),w=weights.get(h.symbol)?.weight;weight.append(node('strong',`配置 ${pct(w)}`));const meter=node('span',null,'holding-meter'),fill=node('i');fill.style.width=(w==null?0:Math.min(100,w*100))+'%';fill.style.background=colorFor(h.symbol);meter.append(fill);weight.append(meter);summary.append(name,value,weight);
-    const details=node('dl',null,'holding-detail');for(const [title,text] of [['最新价',usd(h.price)],['平均成本',usd(h.average_price)],['持仓成本',usd(h.cost)],['组合内市值占比',pct(h.value_weight)],['组合内成本占比',pct(h.cost_weight)],['组合内股数占比',pct(h.shares_weight)],['已实现收益',usd(h.realized_pnl)],['净到账分红',usd(h.cash_dividends)],['含分红总回报',usd(h.total_return)],['标的当日涨跌',h.change_percent==null?'—':h.change_percent.toFixed(2)+'%']]){const cell=node('div');cell.append(node('dt',title),node('dd',text));details.append(cell);}row.append(summary,details);return row;
+    const label=node('div');
+    label.append(node('strong',h.symbol),node('small',Number(h.shares).toLocaleString('en-US',{maximumFractionDigits:6})+' 股 · 市值 '+usd(h.value)));
+    name.append(dot,label);
+    const result=node('div',null,'holding-result'), net=node('strong');
+    showResult(net,h.net_pnl,true);
+    result.append(node('small','交易净盈亏'),net);
+    const split=node('div',null,'holding-components');
+    const realized=node('span'),unrealized=node('span');
+    showResult(realized,h.realized_baseline,true);
+    showResult(unrealized,h.unrealized_pnl,true);
+    if(h.diluted_cost>0 && Number.isFinite(h.unrealized_pnl)){
+      unrealized.append('（'+percentText(h.unrealized_pnl/h.diluted_cost,1,true)+'）');
+    }
+    const floating=node('span');floating.append('未实现 ',unrealized);
+    const booked=node('span');booked.append('已实现 ',realized);
+    split.append(node('span','摊薄成本价 '+usd(h.average_price)+'/股'),floating,booked);
+    const weight=node('div',null,'holding-weight'),w=weights.get(h.symbol)?.weight;
+    weight.append(node('strong',`配置 ${pct(w)}`));
+    const meter=node('span',null,'holding-meter'),fill=node('i');fill.style.width=(w==null?0:Math.min(100,w*100))+'%';fill.style.background=colorFor(h.symbol);meter.append(fill);weight.append(meter);
+    summary.append(name,result,split,weight);
+    if(Number.isFinite(h.price)){
+      const signals=[];
+      if(Number.isFinite(h.breakeven_price) && h.price<h.breakeven_price)signals.push('跌破盈亏平衡价');
+      if(Number.isFinite(h.average_price) && h.price<h.average_price)signals.push('跌破摊薄成本');
+      if(signals.length)summary.append(node('small',signals.join(' · '),'holding-signals'));
+    }
+    const details=node('dl',null,'holding-detail');
+    const fields=[
+      ['最新价',usd(h.price)],['盈亏平衡价',usd(h.breakeven_price)],['净投入',usd(h.net_cost)],
+      ['摊薄成本总额',usd(h.diluted_cost)],['移动加权成本总额',usd(h.cost)],
+      ['组合内市值占比',pct(h.value_weight)],['组合内成本占比',pct(h.cost_weight)],['组合内股数占比',pct(h.shares_weight)],
+      ['净到账分红',usd(h.cash_dividends)],['含分红总回报',usd(h.total_return)],
+      ['标的当日涨跌',Number.isFinite(h.change_percent)?percentText(h.change_percent/100,2):'—']
+    ];
+    for(const [title,text] of fields){const cell=node('div');cell.append(node('dt',title),node('dd',text));details.append(cell);}
+    row.append(summary,details);return row;
   }));if(!data.holdings.length)$('#holdings-list').append(emptyState('暂无持仓。由 Agent 通过 MCP 记录买卖后，会在这里自动汇总。'));
 }
 function renderChart(){
@@ -120,7 +160,7 @@ function renderChart(){
   if(data.history_loaded===false){$('#portfolio-chart').replaceChildren(emptyState('正在读取历史行情，其他数据已可查看…'));return;}
   const lines=curve==='pnl'?[{key:'pnl',label:'美元含分红收益折算',color:'#5574da'}]:[{key:'value',label:'持仓市值（收盘价）',color:'#5574da'},{key:'net_invested',label:'美元净投入折算',color:'#81aaa1',dash:'5 4'}];
   const rate=point=>currency==='USD'?1:point.fx?.rates?.[currency];
-  const format=value=>new Intl.NumberFormat('en-US',{style:'currency',currency}).format(value);
+  const format=value=>nativeMoney(value,currency);
   chart=AccufolioCharts.renderLine($('#portfolio-chart'),{height:145,format,series:lines.map(line=>({...line,points:data.series.map(p=>({day:p.day,value:p[line.key]==null||!(rate(p)>0)?null:p[line.key]*rate(p)}))})),emptyMessage:currency==='USD'?'有买卖记录与历史价格后，投资轨迹会在这里呈现。':'历史汇率或行情不足，暂无法绘制该币种曲线。'});
   const c=data.coverage||{},notes=[];if(data.end)notes.push(`收盘估值截至 ${data.end}（美东）；顶部为最近已知行情`);else notes.push('尚无完整收盘估值');if(c.missing_days)notes.push(`${c.missing_days} 天价格不完整，缺失处保持断线`);if(c.stale_symbols?.length)notes.push('历史源滞后：'+c.stale_symbols.join('、'));if(currency!=='USD'){const missing=data.series.filter(p=>!(rate(p)>0)).length;notes.push(missing?`${missing} 天缺少历史汇率，保留断线`:'按各交易日历史汇率折算');if(historyFxStatus)notes.push(historyFxStatus);}$('#history-coverage').textContent=notes.join('。');
   if(c.dividend_missing_days)$('#history-coverage').textContent+='。'+c.dividend_missing_days+' 天分红归属不完整，收益曲线保持断线。';

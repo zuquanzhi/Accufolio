@@ -77,7 +77,7 @@ function renderBacktest(result,bars,monthly,historicalFx=null){
   clearBacktestResult();savedBacktest={result,bars,monthly,historicalFx};
   const currency=preferredCurrency(),rates=new Map((historicalFx?.points||[]).map(p=>[p.day,p.rates]));
   const rate=day=>currency==='USD'?1:rates.get(day)?.[currency];
-  const format=value=>new Intl.NumberFormat('en-US',{style:'currency',currency}).format(value);
+  const format=value=>nativeMoney(value,currency);
   const converted=(value,day)=>value==null||!(rate(day)>0)?null:value*rate(day);
   const end=bars.at(-1)?.day,amount=value=>converted(value,end)==null?'—':format(converted(value,end));
   const chart=document.createElement('div');chart.className='backtest-chart';chart.id='backtest-chart';
@@ -88,9 +88,9 @@ function renderBacktest(result,bars,monthly,historicalFx=null){
   $('#backtest-result').append(chart);
   backtestChart=AccufolioCharts.renderLine(chart,{title:'同样的投入，不同的路径',description:`模拟账户资产（${currency}），包含未投入现金。外币曲线使用各日历史汇率。`,series:series.map(line=>({...line,points:line.points.map(p=>({...p,value:converted(p.value,p.day)}))})),format,emptyMessage:'历史汇率不足，暂无法绘制该币种曲线。'});
   const table=document.createElement('table');const heading=document.createElement('tr');for(const value of ['策略','美元投入折算','期末资产','收益（USD）','XIRR（USD）']){const cell=document.createElement('th');cell.textContent=value;heading.append(cell);}table.append(heading);
-  for(const [key,label] of labels){const row=document.createElement('tr');const strategy=result.strategies[key];for(const value of [label,amount(strategy.invested),amount(strategy.value),(strategy.return_rate*100).toFixed(2)+'%',strategy.xirr==null?'样本不足或超出范围':(strategy.xirr*100).toFixed(2)+'%']){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);}
+  for(const [key,label] of labels){const row=document.createElement('tr');const strategy=result.strategies[key];for(const value of [label,amount(strategy.invested),amount(strategy.value),percentText(strategy.return_rate,2),strategy.xirr==null?'样本不足或超出范围':percentText(strategy.xirr,2)]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);}
   const stats=document.createElement('div');stats.className='backtest-statistics';
-  for(const [label,value,note] of [['标的区间涨跌',(result.market.twr*100).toFixed(2)+'%','收盘价变化，不含分红'],['标的最大回撤',(result.market.max_drawdown*100).toFixed(2)+'%',result.market.drawdown_date]]){const cell=document.createElement('div');for(const [tag,text] of [['span',label],['strong',value],['small',note]]){const node=document.createElement(tag);node.textContent=text;cell.append(node);}stats.append(cell);}
+  for(const [label,value,note] of [['标的区间涨跌',percentText(result.market.twr,2),'收盘价变化，不含分红'],['标的最大回撤',percentText(result.market.max_drawdown,2),result.market.drawdown_date]]){const cell=document.createElement('div');for(const [tag,text] of [['span',label],['strong',value],['small',note]]){const node=document.createElement(tag);node.textContent=text;cell.append(node);}stats.append(cell);}
   const details=document.createElement('details');details.className='backtest-detail';const summary=document.createElement('summary');summary.textContent='比较期末结果';const scroll=document.createElement('div');scroll.className='table-wrap';scroll.append(table);details.append(summary,scroll);
   const note=document.createElement('p');note.className='backtest-note';note.textContent='曲线按各日历史汇率折算，缺失处断线；结果表中的金额按期末历史汇率折算。收益率和 XIRR 保持美元口径。投入会使资产曲线抬升，资产上升不等于投资回报。'+(historicalFx?.stale?' 历史汇率使用缓存数据。':'');
   $('#backtest-result').append(stats,details,note);

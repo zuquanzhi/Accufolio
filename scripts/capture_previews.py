@@ -3,13 +3,12 @@
 The fixtures patch quote, daily-price and FX providers inside this disposable
 process; no production database or external provider is read or changed.
 """
-import os,socket,subprocess,sys,tempfile,time
+import argparse,os,socket,subprocess,sys,tempfile,time
 from pathlib import Path
 from urllib.request import urlopen
 from playwright.sync_api import sync_playwright,expect
 
 ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'assets'/'previews'
 DEMO_SERVER=r'''
 from datetime import date, timedelta, datetime
 import math
@@ -24,6 +23,7 @@ import packages.core.market_time as market_time
 from apps.api.accounts import Account, CashEntry, save_account, add_cash_entry
 from apps.api.allocation import save_targets
 from apps.api.settlements import set_trade_settlement
+from apps.api.cost_basis import set_cost_basis_calibration
 from packages.providers import Quote, QuoteResult
 
 TODAY=date(2026,11,13)
@@ -81,14 +81,19 @@ for symbol,day,shares,price,side in [('QQQM','2026-01-05',4,180,'buy'),('QQQM','
     set_trade_settlement(trade['id'],settlement['entry']['id'],settlement['account']['revision'],'preview-link-'+str(trade['id']),False,'preview')
 for symbol,day,amount in [('QQQM','2026-03-16',10),('QQQM','2026-06-16',12),('VOO','2026-09-16',8)]:
     cash(broker,day,'dividend',amount,'preview-dividend-'+symbol+'-'+day,'季度净到账分红 · 示例',symbol)
+# Synthetic brokerage statement used to show how calibration changes the
+# realized/unrealized split while the profit from transactions stays the same.
+with api.db() as con:
+    revision=con.execute('SELECT revision FROM accounts WHERE id=?',(broker['id'],)).fetchone()[0]
+set_cost_basis_calibration(broker['id'],'AAPL','2026-10-05',-40,revision,'preview-cost-basis',False,'preview')
 save_targets('securities',{'QQQM':35,'VOO':40,'AAPL':25},0,'preview-security-targets',False,'preview')
 save_targets('net_worth',{f"account:{broker['id']}":65,f"account:{savings['id']}":20,f"account:{emergency['id']}":15},1,'preview-account-targets',False,'preview')
 uvicorn.run(api.app,host='127.0.0.1',port=int(__import__('os').environ['PREVIEW_PORT']),log_level='warning')
 '''
 
 
-def main():
-    OUT.mkdir(parents=True,exist_ok=True)
+def main(out):
+    out.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory() as temp:
         sock=socket.socket();sock.bind(('127.0.0.1',0));port=sock.getsockname()[1];sock.close()
         env={**os.environ,'ACCUFOLIO_USER':'admin','ACCUFOLIO_PASSWORD':'preview-only',
@@ -111,6 +116,8 @@ def main():
                 # These screenshots must contain real calculated returns, not empty shells.
                 full=context.request.get(base+'/api/dashboard?period=all').json()
                 assert full['summary']['cash_dividends']==30 and full['summary']['dividends_complete'],full['summary']
+                aapl=next(h for h in full['holdings'] if h['symbol']=='AAPL')
+                assert abs(aapl['net_pnl']-291.8)<0.005 and abs(aapl['realized_baseline']+40)<0.005,aapl
                 history=context.request.get(base+'/api/assets/history?period=all&currency=USD').json()
                 assert history['summary']['twr'] is not None and history['summary']['max_drawdown'] is not None,history
                 assert not history['coverage']['unmatched_trade_ids'],history['coverage']
@@ -118,7 +125,7 @@ def main():
                 page=context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
                 tab=lambda name:page.locator(f'a[data-view="{name}"]').click()
                 def capture(name):
-                    page.evaluate('scrollTo(0,0)');page.screenshot(path=str(OUT/name))
+                    page.evaluate('scrollTo(0,0)');page.screenshot(path=str(out/name))
                 page.goto(base);expect(page.locator('#assets-total')).to_have_text('$10,000.00')
                 expect(page.locator('#asset-accounts .named-account')).to_have_count(3)
                 capture('web-overview.png')
@@ -136,7 +143,7 @@ def main():
                 page.route('**/api/history?*',lambda route:route.fulfill(json={'symbol':'QQQM','bars':bars,'source':'demo','cached':False,'stale':False,'adjustment':'unadjusted','adjustment_note':'示例数据 · 未复权','errors':[]}))
                 page.locator('#backtest [name=start]').fill('2025-01-01');page.locator('#backtest [name=end]').fill('2025-12-31');page.locator('#run-history').click()
                 expect(page.locator('#backtest-chart .chart-line')).to_have_count(5)
-                page.set_viewport_size({'width':1440,'height':2100});page.locator('.backtest-detail > summary').click();page.locator('#backtest-panel').screenshot(path=str(OUT/'web-backtest.png'));page.locator('.backtest-detail > summary').click()
+                page.set_viewport_size({'width':1440,'height':2100});page.locator('.backtest-detail > summary').click();page.locator('#backtest-panel').screenshot(path=str(out/'web-backtest.png'));page.locator('.backtest-detail > summary').click()
                 page.set_viewport_size({'width':390,'height':844})
                 tab('assets');capture('mobile-overview.png')
                 page.locator('#open-asset-history').click();expect(page.locator('#asset-history-chart .chart-line')).to_have_count(1);capture('mobile-assets-history.png')
@@ -147,6 +154,12 @@ def main():
                 page.locator('#account-back').click();expect(page.locator('#assets-total')).to_be_visible()
                 tab('investments');capture('mobile-investments.png')
                 page.locator('[data-asset-detail=allocation]').click();capture('mobile-allocation.png')
+                holding=page.locator('details.holding[data-symbol="AAPL"]')
+                holding.locator('summary').click()
+                expect(holding.locator('.holding-result strong')).to_have_text('+$291.80')
+                expect(holding.locator('.holding-detail')).to_contain_text('盈亏平衡价')
+                page.locator('.holdings-panel').evaluate("el=>el.scrollIntoView({block:'start',behavior:'instant'})")
+                page.screenshot(path=str(out/'mobile-cost-basis.png'))
                 page.locator('#asset-detail-back').click();expect(page.locator('#value')).to_be_visible()
                 page.locator('[data-asset-detail=performance]').click();expect(page.locator('#investment-dividends')).to_have_text('$30.00');capture('mobile-dividends.png')
                 page.locator('#asset-detail-back').click();expect(page.locator('#value')).to_be_visible()
@@ -158,7 +171,7 @@ def main():
                 page.locator('#income-form button[type=submit]').click();expect(page.locator('#income-result')).to_be_visible();expect(page.locator('#income-net')).to_contain_text('8,104')
                 capture('mobile-income-form.png')
                 page.locator('#income-result').evaluate("element=>element.scrollIntoView({block:'start',behavior:'instant'})")
-                page.screenshot(path=str(OUT/'mobile-income.png'))
+                page.screenshot(path=str(out/'mobile-income.png'))
                 tab('settings');capture('mobile-settings.png')
                 page.select_option('#display-currency','CNY');tab('assets');expect(page.locator('#assets-total')).to_have_text('CN¥71,000.00');capture('mobile-currency.png')
                 tab('investments');expect(page.locator('#portfolio-chart .chart-line')).to_have_count(2);expect(page.locator('#history-coverage')).to_contain_text('按各交易日历史汇率折算');capture('mobile-investments-cny.png')
@@ -170,4 +183,7 @@ def main():
             try:process.wait(timeout=15)
             except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output',type=Path,default=ROOT/'assets'/'previews')
+    main(parser.parse_args().output)

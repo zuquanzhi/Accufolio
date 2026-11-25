@@ -47,7 +47,42 @@ def _trades(rows, end):
     return result, excluded
 
 
-def summarize_account(trades, quotes, end, cash_entries=(), dividend_symbol=None):
+def _cost_fields(net_cost, realized_baseline, value, shares):
+    """Split trading P&L without changing the cash paid for these shares."""
+    diluted = net_cost + realized_baseline
+    unrealized = value - diluted if value is not None else None
+    return {
+        'net_cost': net_cost, 'realized_baseline': realized_baseline, 'diluted_cost': diluted,
+        'breakeven_price': net_cost / shares if shares else None,
+        'average_price': diluted / shares if shares else None,
+        'unrealized_pnl': unrealized, 'pnl': unrealized,
+        'net_pnl': value - net_cost if value is not None else None,
+    }
+
+
+def _realized_baseline(history, realized, calibration):
+    if calibration is None:
+        return realized
+    # Statements include every trade on the statement date, even when a
+    # same-day sale and repurchase close one holding and open another.
+    cutoff = _day(calibration['as_of']).isoformat()
+    through_cutoff = (row for row in history if row['trade_date'] <= cutoff)
+    at_cutoff, realized_at_cutoff = summarize_trades(through_cutoff, 0)
+    if not at_cutoff.shares:
+        return realized
+    remaining = at_cutoff.shares
+    for trade in history:
+        if trade['trade_date'] <= cutoff:
+            continue
+        remaining += trade['shares'] if trade['side'] == 'buy' else -trade['shares']
+        # Upon liquidation there is no unrealized P&L left to reclassify.
+        # A later repurchase must start without the expired adjustment.
+        if remaining < 1e-9:
+            return realized
+    return fsum((calibration['realized_baseline_usd'], realized, -realized_at_cutoff))
+
+
+def summarize_account(trades, quotes, end, cash_entries=(), dividend_symbol=None, *, calibrations=()):
     """Return known accounting values even when some market quotes are missing."""
     end = _day(end)
     rows, excluded = _trades(trades, end)
@@ -58,7 +93,7 @@ def summarize_account(trades, quotes, end, cash_entries=(), dividend_symbol=None
     dividend_totals = {key: fsum(amounts) for key, amounts in dividend_parts.items()}
     grouped = {}
     monthly = {}
-    buy_total = sell_total = realized_total = 0.0
+    buy_total = sell_total = 0.0
     for row in rows:
         grouped.setdefault((row['account_id'], row['symbol']), []).append(row)
         cash = row['shares'] * row['price'] + (row['fee'] if row['side'] == 'buy' else -row['fee'])
@@ -68,50 +103,52 @@ def summarize_account(trades, quotes, end, cash_entries=(), dividend_symbol=None
             buy_total += cash
         else:
             sell_total += cash
+    active_calibrations = {(c['account_id'], c['symbol']): c for c in calibrations if _day(c['as_of']) <= end}
     holdings, missing = [], []
-    account_holdings = []
-    realized_by_symbol = {}
+    positions_by_symbol = {}
     for (account_id, symbol), history in sorted(grouped.items()):
         quote = quotes.get(symbol) or {}
         price = quote.get('price')
         if not isinstance(price, (int, float)) or not isfinite(price) or price <= 0:
             price = None
         position, realized = summarize_trades(history, price or 0)
-        realized_total += realized
-        realized_by_symbol[symbol] = realized_by_symbol.get(symbol, 0) + realized
-        if not position.shares:
-            continue
-        if price is None:
+        if position.shares and price is None:
             missing.append(symbol)
-        account_holdings.append({'symbol': symbol, 'account_id': account_id, 'shares': position.shares, 'cost': position.cost,
-                         'average_price': position.average_price,
-                         'value': position.value if price is not None else None,
-                         'pnl': position.pnl if price is not None else None,
-                         'realized_pnl': realized, 'price': price,
-                         'cash_dividends': dividend_totals.get((account_id, symbol), 0),
-                         'total_return': position.pnl + realized + dividend_totals.get((account_id, symbol), 0)
-                                         if price is not None and dividends['complete'] else None,
-                         'change_percent': quote.get('change_percent'),
-                         'source': quote.get('source'), 'quote_timestamp': quote.get('timestamp')})
+        value = position.value if price is not None or not position.shares else None
+        net_cost = fsum((1 if t['side'] == 'buy' else -1) * t['shares'] * t['price'] + t['fee'] for t in history)
+        baseline = (_realized_baseline(history, realized, active_calibrations.get((account_id, symbol)))
+                    if position.shares else -net_cost)
+        fields = _cost_fields(net_cost, baseline, value, position.shares)
+        paid = dividend_totals.get((account_id, symbol), 0)
+        positions_by_symbol.setdefault(symbol, []).append({
+            'symbol': symbol, 'account_id': account_id, 'shares': position.shares, 'cost': position.cost,
+            'value': value, 'price': price, 'realized_pnl': realized, **fields,
+            'cash_dividends': paid, 'total_return': fields['net_pnl'] + paid if value is not None and dividends['complete'] else None,
+            'change_percent': quote.get('change_percent'), 'source': quote.get('source'), 'quote_timestamp': quote.get('timestamp'),
+        })
     # Cost basis is computed inside each account before the same security is
     # combined; a sale in one account must never consume another's shares.
-    for symbol in sorted({h['symbol'] for h in account_holdings}):
-        parts = [h for h in account_holdings if h['symbol'] == symbol]
-        row = {key: value for key, value in parts[0].items() if key != 'account_id'}
-        for key in ('shares', 'cost', 'realized_pnl'):
-            row[key] = sum(h[key] for h in parts)
-        row['realized_pnl'] = realized_by_symbol[symbol]
-        row['cash_dividends'] = fsum(amount for (account_id, ticker), amount in dividend_totals.items() if ticker == symbol)
-        for key in ('value', 'pnl'):
-            row[key] = None if any(h[key] is None for h in parts) else sum(h[key] for h in parts)
-        row['average_price'] = row['cost']/row['shares']
-        row['total_return'] = row['pnl'] + row['realized_pnl'] + row['cash_dividends'] if row['pnl'] is not None and dividends['complete'] else None
-        row['accounts'] = parts
+    for symbol, parts in sorted(positions_by_symbol.items()):
+        open_parts = [part for part in parts if part['shares']]
+        if not open_parts:
+            continue
+        row = {key: value for key, value in open_parts[0].items() if key != 'account_id'}
+        for key in ('shares', 'cost', 'realized_pnl', 'realized_baseline', 'cash_dividends', 'net_cost'):
+            row[key] = fsum(part[key] for part in parts)
+        row['value'] = None if any(part['value'] is None for part in parts) else fsum(part['value'] for part in parts)
+        row.update(_cost_fields(row['net_cost'], row['realized_baseline'], row['value'], row['shares']))
+        row['total_return'] = row['net_pnl'] + row['cash_dividends'] if row['value'] is not None and dividends['complete'] else None
+        row['accounts'] = open_parts
         holdings.append(row)
     cost = sum(row['cost'] for row in holdings)
     total_shares = sum(row['shares'] for row in holdings)
     value = None if missing else sum(row['value'] for row in holdings)
-    net = buy_total - sell_total
+    all_positions = [part for parts in positions_by_symbol.values() for part in parts]
+    net = fsum(part['net_cost'] for part in all_positions)
+    realized_total = fsum(part['realized_pnl'] for part in all_positions)
+    baseline = fsum(part['realized_baseline'] for part in all_positions)
+    # A per-share cost is meaningful only for a single security.
+    fields = _cost_fields(net, baseline, value, total_shares if len(positions_by_symbol) == 1 else None)
     annualized = None
     annualized_reason = '行情不完整' if missing else '记录不足 90 天或没有可计算的现金流'
     if not dividends['complete']:
@@ -137,11 +174,10 @@ def summarize_account(trades, quotes, end, cash_entries=(), dividend_symbol=None
                  for (account_id, ticker), amount in sorted(dividend_totals.items()) if ticker == symbol]
         dividend_breakdown.append({'symbol': symbol, 'cash_dividends': fsum(part['cash_dividends'] for part in parts), 'accounts': parts})
     return {
-        'summary': {'value': value, 'cost': cost, 'net_invested': net,
+        'summary': {'value': value, 'cost': cost, 'net_invested': net, **fields,
                     'buy_total': buy_total, 'sell_total': sell_total,
                     'realized_pnl': realized_total,
-                    'unrealized_pnl': value - cost if value is not None else None,
-                    'total_pnl': value - net if value is not None else None,
+                    'total_pnl': fields['net_pnl'],
                     'cash_dividends': dividends['cash_dividends'], 'dividends_complete': dividends['complete'],
                     'total_return': value - net + dividends['cash_dividends'] if value is not None and dividends['complete'] else None,
                     'holding_count': len(holdings), 'trade_count': len(rows),
@@ -242,8 +278,8 @@ def reconstruct(trades, histories, start, end, cash_entries=()):
     return {'series': points, 'history_missing_symbols': sorted(missing_symbols), 'missing_days': missing_days}
 
 
-def build_dashboard(trades, histories, quotes, start, end, include_history=True, history_end=None, cash_entries=()):
-    account = summarize_account(trades, quotes, end, cash_entries=cash_entries)
+def build_dashboard(trades, histories, quotes, start, end, include_history=True, history_end=None, cash_entries=(), *, calibrations=()):
+    account = summarize_account(trades, quotes, end, cash_entries=cash_entries, calibrations=calibrations)
     cutoff = _day(history_end) if history_end is not None else _day(end)
     history = reconstruct(trades, histories, start, cutoff, cash_entries=cash_entries) if include_history and _day(start) <= cutoff else {
         'series': [], 'history_missing_symbols': [], 'missing_days': 0}

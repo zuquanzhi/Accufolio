@@ -219,6 +219,20 @@ def main():
                     assert len(entry_requests) == count, 'Requested an unversioned journal'
                 state['bad_revision'] = None; page.clock.fast_forward(60_000)
                 expect(row(22)).to_be_visible()
+                # The response balance is rounded at the account boundary; the journal retains
+                # sub-cent amounts and must still reconcile and display a neutral native zero.
+                state['journals'][2]=[{'id':29,'entry_date':'2026-11-01','kind':'balance_open',
+                                      'currency':'HKD','amount':0.006},
+                                     {'id':30,'entry_date':'2026-11-02','kind':'fee',
+                                      'currency':'HKD','amount':-0.003}]
+                state['accounts'][1].update(balance=0,entry_count=2,revision=12)
+                page.clock.fast_forward(60_000)
+                expect(page.locator('#account-native-balance')).to_have_text('HK$0.00')
+                expect(row(30).locator('.cash-entry-amount')).to_have_text('HK$0.00')
+                expect(row(30).locator('.cash-entry-amount')).to_have_attribute('data-sign','neutral')
+                expect(row(30).locator('.cash-entry-balance')).to_have_text('余额 HK$0.00')
+                assert page.evaluate("money(-0.003)+' '+moneySign(displayAmount(-0.003))")=='-CN¥0.02 negative'
+                assert page.evaluate("money(-1e-12)+' '+moneySign(displayAmount(-1e-12))")=='CN¥0.00 neutral'
                 assert not writes, writes
                 assert not errors, errors
                 browser.close()

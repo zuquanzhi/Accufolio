@@ -16,7 +16,7 @@ def health(actor: str = Depends(authorize)):
     worker = worker_status()
     backup = backup_status()
     with db() as con:
-        return {'release':'2.3.0', 'database':con.execute('PRAGMA quick_check').fetchone()[0],
+        return {'release':'2.4.0', 'database':con.execute('PRAGMA quick_check').fetchone()[0],
                 'timezone':'UTC', 'worker':worker, 'backup':backup}
 
 @router.get('/export')

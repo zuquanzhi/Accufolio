@@ -20,7 +20,24 @@ function setDisplayTimezone(zone){if(zone&&validTimezone(zone))localStorage.setI
 function preferredCurrency(){const code=localStorage.getItem(CURRENCY_KEY)||serverCurrency;return DISPLAY_CURRENCIES.includes(code)?code:'USD';}
 function displayCurrency(){const code=preferredCurrency();return code==='USD'||Number.isFinite(fxData?.rates?.[code])&&fxData.rates[code]>0?code:'USD';}
 function displayAmount(value){return value==null?null:Number(value)*(displayCurrency()==='USD'?1:fxData.rates[displayCurrency()]);}
-const money=value=>value==null?'—':displayAmount(value).toLocaleString('en-US',{style:'currency',currency:displayCurrency()});
+function moneySign(amount) {
+  if (!Number.isFinite(amount) || Math.abs(amount) < 0.005) return 'neutral';
+  return amount > 0 ? 'positive' : 'negative';
+}
+function nativeMoney(amount, currency, signed=false) {
+  if (!Number.isFinite(amount)) return '—';
+  const sign = moneySign(amount);
+  const value = sign === 'neutral' ? 0 : amount;
+  return (signed && sign === 'positive' ? '+' : '') +
+    new Intl.NumberFormat('en-US', {style:'currency', currency, minimumFractionDigits:2, maximumFractionDigits:2}).format(value);
+}
+const money = (value, signed=false) => nativeMoney(displayAmount(value), displayCurrency(), signed);
+function percentText(fraction, digits=1, signed=false) {
+  if (!Number.isFinite(fraction)) return '—';
+  const percent = fraction * 100;
+  const visible = Math.abs(percent) < 0.5 * 10 ** -digits ? 0 : percent;
+  return (signed && visible > 0 ? '+' : '') + visible.toFixed(digits) + '%';
+}
 const moneyAxis=value=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(displayAmount(value));
 function refreshPreferences(){for(const entry of pageEntries.values())entry.controller.preferencesChanged?.();}
 function currencyNote(){
@@ -90,7 +107,7 @@ function textRow(title,detail,buttonText,action) {
 }
 function tradeRow(trade) {
   const strategies={dca:'定投',dip_add:'回撤加仓',rebalance:'再平衡',manual:'自主交易'};
-  const currency=trade.currency||'USD',native=value=>new Intl.NumberFormat('en-US',{style:'currency',currency}).format(value);
+  const currency=trade.currency||'USD',native=value=>nativeMoney(value,currency);
   const context=[trade.account_name,strategies[trade.strategy]].filter(Boolean).join(' · ');
   const equivalent=currency==='USD'&&displayCurrency()!=='USD'?' · 参考折合 '+money(trade.price):'';
   const row=textRow(`${trade.symbol} · ${trade.side==='sell'?'卖出':'买入'} ${trade.shares} 股`,`${trade.trade_date} · ${native(trade.price)} ${currency}${equivalent}${context?' · '+context:''}${trade.fee>0?' · 手续费 '+native(trade.fee):''}${trade.note?' · '+trade.note:''}`);

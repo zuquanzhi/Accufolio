@@ -253,6 +253,46 @@ def main():
                 expect(page.locator('#realized')).to_have_text('$10.00')
                 page.go_back();page.wait_for_url(base+'/investments')
                 expect(page.locator('#investments-overview')).to_be_visible()
+                # Synthetic calibrated lot: past losses reduce the reported cost price.
+                # Moving cost and the comparison price for total trading profit are distinct.
+                lot = {'symbol':'TEST', 'shares':3, 'cost':320, 'net_cost':330,
+                       'breakeven_price':110, 'diluted_cost':300, 'average_price':100,
+                       'realized_pnl':-10, 'realized_baseline':-30, 'cash_dividends':3,
+                       'value_weight':1, 'cost_weight':1, 'shares_weight':1, 'price':105}
+                def calibrated(route):
+                    current=lot['price']
+                    value=None if current is None else current*lot['shares']
+                    floating=None if value is None else value-lot['diluted_cost']
+                    net=None if value is None else value-lot['net_cost']
+                    total_return=None if net is None else net+lot['cash_dividends']
+                    holding={**lot,'value':value,'unrealized_pnl':floating,'pnl':floating,
+                             'net_pnl':net,'total_return':total_return}
+                    result=payload('1m',False)
+                    result.update(holdings=[holding],history_loaded=False)
+                    result['summary'].update(holding,holding_count=1)
+                    route.fulfill(json=result)
+                page.route('**/api/dashboard*',calibrated)
+                refresh();expect(page.locator('#summary-net')).to_have_text('-$15.00')
+                expect(page.locator('#pnl')).to_have_text('$15.00')
+                expect(page.locator('#summary-realized')).to_have_text('-$30.00')
+                page.locator('[data-asset-detail="allocation"]').click()
+                test_lot=page.locator('.holding[data-symbol="TEST"]')
+                expect(test_lot.locator('summary')).to_contain_text('摊薄成本价 $100.00/股')
+                expect(test_lot.locator('summary')).to_contain_text('未实现 +$15.00（+5.0%）')
+                expect(test_lot.locator('.holding-result strong')).to_have_attribute('data-sign','negative')
+                expect(test_lot.locator('.holding-signals')).to_have_text('跌破盈亏平衡价')
+                test_lot.locator('summary').click()
+                expect(test_lot.locator('.holding-detail div').filter(has_text='盈亏平衡价')).to_contain_text('$110.00')
+                expect(test_lot.locator('.holding-detail div').filter(has_text='含分红总回报')).to_contain_text('-$12.00')
+                page.set_viewport_size({'width':320,'height':740})
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
+                lot['price']=90;refresh()
+                expect(test_lot.locator('.holding-signals')).to_have_text('跌破盈亏平衡价 · 跌破摊薄成本')
+                lot.update(realized_baseline=30, diluted_cost=360, average_price=120, price=115);refresh()
+                expect(test_lot.locator('.holding-signals')).to_have_text('跌破摊薄成本')
+                lot['price']=None;refresh()
+                expect(test_lot.locator('.holding-result strong')).to_have_text('—')
+                expect(test_lot.locator('.holding-signals')).to_have_count(0)
                 assert not writes, 'Read-only dashboard sent a write request: '+str(writes)
                 assert not errors, errors
                 browser.close()
